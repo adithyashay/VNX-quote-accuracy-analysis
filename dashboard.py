@@ -238,20 +238,20 @@ def get_sidebar_filters(symbols_df, sectors, min_date, max_date):
     st.sidebar.subheader("Matching Filter")
 
     timestamp_window_option = st.sidebar.selectbox(
-    "Timestamp window",
-    options=["All", 1, 5, 15, 30, 60],
-    index=5,
-    help=(
-        "Select the maximum allowed timestamp gap between VNX and delayed/reference quotes. "
-        "'All' includes every matched observation regardless of timestamp gap."
-    ),
-)
+        "Timestamp window",
+        options=["All", 1, 5, 15, 30, 60],
+        index=5,
+        help=(
+            "Select the maximum allowed timestamp gap between VNX and delayed/reference quotes. "
+            "'All' includes every matched observation regardless of timestamp gap."
+        ),
+    )
 
     max_time_gap_seconds = (
-    None
-    if timestamp_window_option == "All"
-    else timestamp_window_option
-)
+        None
+        if timestamp_window_option == "All"
+        else timestamp_window_option
+    )
     valid_only = timestamp_window_option != "All"
 
     st.sidebar.subheader("Table Display")
@@ -627,7 +627,10 @@ def main():
     window_text = (
         "All timestamp gaps, including invalid/wide-gap matches"
         if filters["timestamp_window_option"] == "All"
-        else f"timestamp window ≤ {filters['max_time_gap_seconds']} seconds"f"valid matches with timestamp window ≤ {filters['max_time_gap_seconds']} seconds"
+        else (
+            "valid matches with timestamp window "
+            f"≤ {filters['max_time_gap_seconds']} seconds"
+        )
     )
 
     st.info(

@@ -31,6 +31,28 @@ def clean_number(value):
     return float(value)
 
 
+def clean_bool(value):
+    """
+    Convert common boolean representations without treating "False" as true.
+    """
+
+    if value is None or pd.isna(value):
+        return None
+
+    if isinstance(value, bool):
+        return value
+
+    normalized = str(value).strip().lower()
+
+    if normalized in {"true", "1", "yes", "y"}:
+        return True
+
+    if normalized in {"false", "0", "no", "n"}:
+        return False
+
+    return None
+
+
 def insert_vnx_quote_rows(rows):
     """
     Insert raw VNX quote rows into PostgreSQL.
@@ -167,7 +189,7 @@ def insert_matched_quote_rows(rows):
                 clean_number(row.get("delayed_price")),
                 clean_datetime(row.get("delayed_time")),
                 clean_number(row.get("time_gap_seconds")),
-                bool(row.get("valid_match")),
+                clean_bool(row.get("valid_match")),
                 clean_number(row.get("difference")),
                 clean_number(row.get("percentage_error")),
                 clean_number(row.get("absolute_percentage_error")),

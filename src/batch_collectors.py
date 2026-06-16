@@ -1,8 +1,27 @@
 import os
+import re
 import pandas as pd
 from datetime import datetime
 
-from src.batch_client import get_vnx_quotes_batch, get_delayed_quotes_batch
+SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,14}$")
+
+
+def keep_valid_symbols(df):
+    """
+    Keep rows whose symbol looks like a ticker, including dot/hyphen variants.
+    """
+
+    if df.empty or "symbol" not in df.columns:
+        return df, 0
+
+    symbol_series = df["symbol"].astype(str).str.strip().str.upper()
+    valid_mask = symbol_series.str.match(SYMBOL_PATTERN)
+    invalid_rows = int((~valid_mask).sum())
+
+    cleaned_df = df[valid_mask].copy()
+    cleaned_df["symbol"] = symbol_series[valid_mask]
+
+    return cleaned_df, invalid_rows
 
 
 def save_rows_to_csv(rows, file_path, duplicate_columns):
@@ -21,10 +40,12 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
             "saved_rows": 0,
             "skipped_rows": 0,
             "cleaned_existing_duplicates": 0,
+            "invalid_symbol_rows": 0,
             "reason": "No rows to save"
         }
 
     new_df = pd.DataFrame(rows)
+    new_df, invalid_new_symbol_rows = keep_valid_symbols(new_df)
 
     new_df = new_df.drop_duplicates(
         subset=duplicate_columns,
@@ -33,6 +54,7 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
 
     if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
         existing_df = pd.read_csv(file_path, low_memory=False)
+        existing_df, invalid_existing_symbol_rows = keep_valid_symbols(existing_df)
 
         existing_count_before_cleaning = len(existing_df)
 
@@ -65,6 +87,7 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
         saved_rows = len(new_df)
         skipped_rows = 0
         cleaned_existing_duplicates = 0
+        invalid_existing_symbol_rows = 0
 
     combined_df.to_csv(file_path, index=False)
 
@@ -72,6 +95,7 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
         "saved_rows": saved_rows,
         "skipped_rows": skipped_rows,
         "cleaned_existing_duplicates": cleaned_existing_duplicates,
+        "invalid_symbol_rows": invalid_new_symbol_rows + invalid_existing_symbol_rows,
         "reason": "Rows saved with duplicate check"
     }
 
@@ -82,6 +106,8 @@ def collect_vnx_quotes_batch(symbols):
 
     Saves to CSV backup and returns collected rows for PostgreSQL insertion.
     """
+
+    from src.batch_client import get_vnx_quotes_batch
 
     quotes = get_vnx_quotes_batch(symbols)
 
@@ -123,6 +149,8 @@ def collect_delayed_quotes_batch(symbols):
 
     Saves to CSV backup and returns collected rows for PostgreSQL insertion.
     """
+
+    from src.batch_client import get_delayed_quotes_batch
 
     quotes = get_delayed_quotes_batch(symbols)
 

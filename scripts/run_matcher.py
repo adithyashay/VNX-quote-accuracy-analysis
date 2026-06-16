@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from src.matcher import match_all_vnx_quotes_to_delayed, save_matched_results
+from src.matcher import (
+    match_all_vnx_quotes_to_delayed,
+    normalize_matched_dataframe,
+    save_matched_results,
+)
 
 
 PROCESSED_DIR = Path("data/processed")
@@ -20,6 +24,7 @@ print("New matched rows generated:", len(matched_df))
 if matched_df.empty:
     print("No new unmatched VNX rows found.")
 else:
+    matched_df = normalize_matched_dataframe(matched_df)
     save_status = save_matched_results(matched_df)
 
     total_matches = len(matched_df)

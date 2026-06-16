@@ -1,13 +1,27 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
 
+EASTERN_TIMEZONE = ZoneInfo("America/New_York")
+
 
 def convert_timestamp(timestamp_ms):
-    return datetime.fromtimestamp(timestamp_ms / 1000)
+    """
+    Convert API millisecond timestamps into naive Eastern datetimes.
+
+    PostgreSQL tables currently use TIMESTAMP rather than TIMESTAMPTZ, so the
+    pipeline stores exchange-local Eastern time consistently and explicitly.
+    """
+
+    return (
+        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+        .astimezone(EASTERN_TIMEZONE)
+        .replace(tzinfo=None)
+    )
 
 
 def build_symbol_path(symbols):

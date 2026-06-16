@@ -54,6 +54,36 @@ def clean_numeric_column(df, column_name):
     return df
 
 
+def clean_boolean_column(df, column_name):
+    """
+    Convert common boolean strings without turning "False" into True.
+    """
+
+    if df.empty or column_name not in df.columns:
+        return df
+
+    mapping = {
+        "true": True,
+        "1": True,
+        "yes": True,
+        "y": True,
+        "false": False,
+        "0": False,
+        "no": False,
+        "n": False,
+    }
+
+    df[column_name] = (
+        df[column_name]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .map(mapping)
+    )
+
+    return df
+
+
 def import_sp500_symbols():
     """
     Import S&P 500 symbol universe into PostgreSQL.
@@ -296,7 +326,7 @@ def import_matched_quote_analysis():
     df = parse_datetime_column(df, "vnx_time")
     df = parse_datetime_column(df, "delayed_time")
 
-    df["valid_match"] = df["valid_match"].astype(bool)
+    df = clean_boolean_column(df, "valid_match")
 
     df = df.dropna(subset=["symbol", "vnx_time"])
     df = df[df["symbol"] != ""]

@@ -7,6 +7,64 @@ DELAYED_HISTORY_FILE = "data/raw/delayed_quote_history.csv"
 MATCHED_ANALYSIS_FILE = "data/processed/matched_quote_analysis.csv"
 
 
+def normalize_datetime_series(series):
+    """
+    Parse timestamp values into a consistent pandas datetime series.
+    """
+
+    return pd.to_datetime(
+        series,
+        format="mixed",
+        errors="coerce"
+    )
+
+
+def normalize_timestamp_key(series):
+    """
+    Normalize timestamps before using them as de-duplication keys.
+
+    String casting is not safe here because pandas may serialize equivalent
+    timestamps as either `.544` or `.544000`.
+    """
+
+    normalized = normalize_datetime_series(series)
+
+    return normalized.dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def normalize_matched_dataframe(matched_df):
+    """
+    Normalize matched-analysis timestamps and keep the closest row per VNX quote.
+    """
+
+    if matched_df.empty:
+        return matched_df
+
+    matched_df = matched_df.copy()
+
+    for column in ["vnx_time", "delayed_time"]:
+        if column in matched_df.columns:
+            matched_df[column] = normalize_datetime_series(matched_df[column])
+
+    matched_df = matched_df.dropna(subset=["vnx_time"])
+
+    if "time_gap_seconds" in matched_df.columns:
+        matched_df = matched_df.sort_values(
+            by=["symbol", "vnx_time", "time_gap_seconds"],
+            ascending=[True, True, True],
+        )
+    else:
+        matched_df = matched_df.sort_values(
+            by=["symbol", "vnx_time"],
+            ascending=[True, True],
+        )
+
+    return matched_df.drop_duplicates(
+        subset=["symbol", "vnx_time"],
+        keep="first"
+    )
+
+
 def load_raw_quote_data():
     """
     Load raw VNX quote history and delayed quote history.
@@ -16,16 +74,12 @@ def load_raw_quote_data():
     vnx_df = pd.read_csv(VNX_HISTORY_FILE, low_memory=False)
     delayed_df = pd.read_csv(DELAYED_HISTORY_FILE, low_memory=False)
 
-    vnx_df["timestamp_readable"] = pd.to_datetime(
-        vnx_df["timestamp_readable"],
-        format="mixed",
-        errors="coerce"
+    vnx_df["timestamp_readable"] = normalize_datetime_series(
+        vnx_df["timestamp_readable"]
     )
 
-    delayed_df["delayed_time_readable"] = pd.to_datetime(
-        delayed_df["delayed_time_readable"],
-        format="mixed",
-        errors="coerce"
+    delayed_df["delayed_time_readable"] = normalize_datetime_series(
+        delayed_df["delayed_time_readable"]
     )
 
     vnx_df = vnx_df.dropna(subset=["timestamp_readable"])
@@ -42,16 +96,12 @@ def load_existing_matched_data():
     if os.path.exists(MATCHED_ANALYSIS_FILE) and os.path.getsize(MATCHED_ANALYSIS_FILE) > 0:
         existing_df = pd.read_csv(MATCHED_ANALYSIS_FILE)
 
-        existing_df["vnx_time"] = pd.to_datetime(
-            existing_df["vnx_time"],
-            format="mixed",
-            errors="coerce"
+        existing_df["vnx_time"] = normalize_datetime_series(
+            existing_df["vnx_time"]
         )
 
-        existing_df["delayed_time"] = pd.to_datetime(
-            existing_df["delayed_time"],
-            format="mixed",
-            errors="coerce"
+        existing_df["delayed_time"] = normalize_datetime_series(
+            existing_df["delayed_time"]
         )
 
         existing_df = existing_df.dropna(subset=["vnx_time", "delayed_time"])
@@ -69,9 +119,9 @@ def create_vnx_match_key(df, symbol_column="symbol", time_column="timestamp_read
     """
 
     return (
-        df[symbol_column].astype(str)
+        df[symbol_column].astype(str).str.strip()
         + "|"
-        + df[time_column].astype(str)
+        + normalize_timestamp_key(df[time_column])
     )
 
 
@@ -268,32 +318,30 @@ def save_matched_results(matched_df):
 
     if os.path.exists(MATCHED_ANALYSIS_FILE) and os.path.getsize(MATCHED_ANALYSIS_FILE) > 0:
         existing_df = pd.read_csv(MATCHED_ANALYSIS_FILE)
+        existing_df = normalize_matched_dataframe(existing_df)
+        matched_df = normalize_matched_dataframe(matched_df)
 
         combined_df = pd.concat(
             [existing_df, matched_df],
             ignore_index=True
         )
 
-        before_dedup_count = len(combined_df)
-
-        combined_df = combined_df.drop_duplicates(
-            subset=["symbol", "vnx_time"],
-            keep="first"
-        )
+        combined_df = normalize_matched_dataframe(combined_df)
 
         after_dedup_count = len(combined_df)
 
         saved_rows = after_dedup_count - len(existing_df)
 
     else:
-        combined_df = matched_df.drop_duplicates(
-            subset=["symbol", "vnx_time"],
-            keep="first"
-        )
+        combined_df = normalize_matched_dataframe(matched_df)
 
         saved_rows = len(combined_df)
 
-    combined_df.to_csv(MATCHED_ANALYSIS_FILE, index=False)
+    combined_df.to_csv(
+        MATCHED_ANALYSIS_FILE,
+        index=False,
+        date_format="%Y-%m-%d %H:%M:%S.%f",
+    )
 
     return {
         "saved_rows": saved_rows,

@@ -7,7 +7,11 @@ from src.batch_collectors import (
     collect_vnx_quotes_batch,
     collect_delayed_quotes_batch
 )
-from src.matcher import match_all_vnx_quotes_to_delayed, save_matched_results
+from src.matcher import (
+    match_all_vnx_quotes_to_delayed,
+    normalize_matched_dataframe,
+    save_matched_results,
+)
 from src.database.writer import (
     insert_vnx_quote_rows,
     insert_delayed_quote_rows,
@@ -188,34 +192,13 @@ def run_matcher():
         incremental=True
     )
 
-    save_status = save_matched_results(matched_df)
-
     print(f"Matched rows before cleanup: {len(matched_df)}")
 
-    # Keep only valid matches if the matcher created invalid rows too
-    if "valid_match" in matched_df.columns:
-        matched_df = matched_df[matched_df["valid_match"] == True].copy()
-
-    # Sort so the closest delayed quote is first for each VNX quote
-    matched_df = matched_df.sort_values(
-        by=["symbol", "vnx_time", "time_gap_seconds"],
-        ascending=[True, True, True],
-    )
-
-    # For each VNX quote, keep only the closest delayed quote
-    matched_df = matched_df.drop_duplicates(
-        subset=["symbol", "vnx_time"],
-        keep="first",
-    )
-
-    # Final protection against exact duplicate rows
-    matched_df = matched_df.drop_duplicates(
-        subset=["symbol", "vnx_time", "delayed_time"],
-        keep="first",
-    )
+    matched_df = normalize_matched_dataframe(matched_df)
 
     print(f"Matched rows after cleanup: {len(matched_df)}")
 
+    save_status = save_matched_results(matched_df)
     db_inserted_matches = insert_matched_quote_rows(matched_df)
 
     total_matches = len(matched_df)
