@@ -38,3 +38,52 @@ The project collects VNX quotes and delayed/reference quotes, matches them by ti
 7. Save matched data into PostgreSQL
 8. Display stats in Streamlit dashboard
 ```
+
+## Local Setup
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Fill in `.env` with the ViaNexus API token and PostgreSQL connection settings.
+
+## Database Commands
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.setup_database
+.\.venv\Scripts\python.exe -m scripts.import_csv_to_postgres
+.\.venv\Scripts\python.exe -m scripts.run_database_health_check
+```
+
+The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, and match-validity consistency.
+
+## Dashboard
+
+```powershell
+.\.venv\Scripts\streamlit.exe run dashboard.py
+```
+
+The dashboard reads from PostgreSQL. Raw CSVs are backup artifacts, not the preferred source for dashboard analysis.
+
+## Automation And Deployment Direction
+
+For production, keep collection and dashboard serving as separate processes:
+
+```text
+Trading-hours collector
+    -> writes raw + matched data to PostgreSQL
+    -> runs on a scheduler/server during market hours
+
+Streamlit dashboard
+    -> read-only access to PostgreSQL
+    -> deployed for approved viewers
+```
+
+Recommended next steps:
+
+1. Run the collector from a scheduler during US market hours.
+2. Host PostgreSQL somewhere reachable by both the collector and dashboard.
+3. Deploy Streamlit separately with `.env`/secrets configured in the hosting platform.
+4. Add basic access control before sharing the dashboard.
