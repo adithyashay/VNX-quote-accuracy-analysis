@@ -24,6 +24,26 @@ def keep_valid_symbols(df):
     return cleaned_df, invalid_rows
 
 
+def keep_valid_symbol_rows(rows):
+    if not rows:
+        return [], 0
+
+    df = pd.DataFrame(rows)
+    cleaned_df, invalid_rows = keep_valid_symbols(df)
+
+    return cleaned_df.to_dict("records"), invalid_rows
+
+
+def disabled_csv_status(invalid_symbol_rows=0):
+    return {
+        "saved_rows": 0,
+        "skipped_rows": 0,
+        "cleaned_existing_duplicates": 0,
+        "invalid_symbol_rows": invalid_symbol_rows,
+        "reason": "CSV backup disabled"
+    }
+
+
 def save_rows_to_csv(rows, file_path, duplicate_columns):
     """
     Save rows to CSV while removing duplicates.
@@ -89,6 +109,11 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
         cleaned_existing_duplicates = 0
         invalid_existing_symbol_rows = 0
 
+    directory = os.path.dirname(file_path)
+
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
     combined_df.to_csv(file_path, index=False)
 
     return {
@@ -100,7 +125,7 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
     }
 
 
-def collect_vnx_quotes_batch(symbols):
+def collect_vnx_quotes_batch(symbols, save_csv_backup=True):
     """
     Collect VNX quotes for multiple symbols.
 
@@ -129,13 +154,19 @@ def collect_vnx_quotes_batch(symbols):
             "price_type": quote["price_type"]
         })
 
-    file_path = "data/raw/vnx_quote_history.csv"
+    rows, invalid_symbol_rows = keep_valid_symbol_rows(rows)
 
-    csv_status = save_rows_to_csv(
-        rows=rows,
-        file_path=file_path,
-        duplicate_columns=["symbol", "timestamp_raw"]
-    )
+    if save_csv_backup:
+        file_path = "data/raw/vnx_quote_history.csv"
+
+        csv_status = save_rows_to_csv(
+            rows=rows,
+            file_path=file_path,
+            duplicate_columns=["symbol", "timestamp_raw"]
+        )
+        csv_status["invalid_symbol_rows"] += invalid_symbol_rows
+    else:
+        csv_status = disabled_csv_status(invalid_symbol_rows)
 
     csv_status["rows"] = rows
     csv_status["collected_rows"] = len(rows)
@@ -143,7 +174,7 @@ def collect_vnx_quotes_batch(symbols):
     return csv_status
 
 
-def collect_delayed_quotes_batch(symbols):
+def collect_delayed_quotes_batch(symbols, save_csv_backup=True):
     """
     Collect delayed quotes for multiple symbols.
 
@@ -174,13 +205,19 @@ def collect_delayed_quotes_batch(symbols):
             "collected_at": collection_timestamp
         })
 
-    file_path = "data/raw/delayed_quote_history.csv"
+    rows, invalid_symbol_rows = keep_valid_symbol_rows(rows)
 
-    csv_status = save_rows_to_csv(
-        rows=rows,
-        file_path=file_path,
-        duplicate_columns=["symbol", "delayed_time_raw"]
-    )
+    if save_csv_backup:
+        file_path = "data/raw/delayed_quote_history.csv"
+
+        csv_status = save_rows_to_csv(
+            rows=rows,
+            file_path=file_path,
+            duplicate_columns=["symbol", "delayed_time_raw"]
+        )
+        csv_status["invalid_symbol_rows"] += invalid_symbol_rows
+    else:
+        csv_status = disabled_csv_status(invalid_symbol_rows)
 
     csv_status["rows"] = rows
     csv_status["collected_rows"] = len(rows)

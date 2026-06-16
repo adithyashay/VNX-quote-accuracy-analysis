@@ -25,6 +25,42 @@ def require_env(name):
     return value
 
 
+def get_bool_env(name, default=False):
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+
+    raise ValueError(f"Invalid boolean value for {name}: {value}")
+
+
+def get_int_env(name, default, min_value=None):
+    value = os.getenv(name)
+
+    if value is None:
+        parsed_value = default
+    else:
+        try:
+            parsed_value = int(value)
+        except ValueError as error:
+            raise ValueError(f"Invalid integer value for {name}: {value}") from error
+
+    if min_value is not None and parsed_value < min_value:
+        raise ValueError(
+            f"{name} must be at least {min_value}; got {parsed_value}"
+        )
+
+    return parsed_value
+
+
 def get_vianexus_api_token():
     return require_env("VIANEXUS_API_TOKEN")
 

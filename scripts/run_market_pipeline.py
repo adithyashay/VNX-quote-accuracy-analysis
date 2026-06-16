@@ -3,6 +3,7 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
 from config.symbols import ACTIVE_SYMBOLS
+from src.settings import get_bool_env, get_int_env
 from src.batch_collectors import (
     collect_vnx_quotes_batch,
     collect_delayed_quotes_batch
@@ -25,18 +26,32 @@ from src.database.writer import (
 
 SYMBOLS = ACTIVE_SYMBOLS
 
-BATCH_SIZE = 100
+BATCH_SIZE = get_int_env("BATCH_SIZE", 100, min_value=1)
 
-COLLECTION_INTERVAL_SECONDS = 60
+COLLECTION_INTERVAL_SECONDS = get_int_env(
+    "COLLECTION_INTERVAL_SECONDS",
+    60,
+    min_value=1,
+)
 
-MATCHER_INTERVAL_SECONDS = 300
+MATCHER_INTERVAL_SECONDS = get_int_env(
+    "MATCHER_INTERVAL_SECONDS",
+    300,
+    min_value=1,
+)
+
+MATCHER_VALID_WINDOW_SECONDS = get_int_env(
+    "MATCHER_VALID_WINDOW_SECONDS",
+    60,
+    min_value=1,
+)
 
 EASTERN_TIMEZONE = ZoneInfo("America/New_York")
 
 MARKET_OPEN = dt_time(9, 30)
 MARKET_CLOSE = dt_time(16, 0)
 
-SAVE_CSV_BACKUP = True
+SAVE_CSV_BACKUP = get_bool_env("SAVE_CSV_BACKUP", True)
 
 
 # -----------------------------
@@ -117,8 +132,14 @@ def collect_all_symbols_in_batches():
         print("Symbols:", ", ".join(symbol_batch))
 
         try:
-            vnx_status = collect_vnx_quotes_batch(symbol_batch)
-            delayed_status = collect_delayed_quotes_batch(symbol_batch)
+            vnx_status = collect_vnx_quotes_batch(
+                symbol_batch,
+                save_csv_backup=SAVE_CSV_BACKUP,
+            )
+            delayed_status = collect_delayed_quotes_batch(
+                symbol_batch,
+                save_csv_backup=SAVE_CSV_BACKUP,
+            )
 
             vnx_rows = vnx_status.get("rows", [])
             delayed_rows = delayed_status.get("rows", [])
@@ -188,7 +209,7 @@ def run_matcher():
     """
 
     matched_df = match_all_vnx_quotes_to_delayed(
-        valid_window_seconds=60,
+        valid_window_seconds=MATCHER_VALID_WINDOW_SECONDS,
         incremental=True
     )
 
@@ -243,6 +264,7 @@ def main():
         print("Current Eastern Time:", current_time)
         print("Active Symbols:", len(SYMBOLS))
         print("Batch Size:", BATCH_SIZE)
+        print("CSV Backup Enabled:", SAVE_CSV_BACKUP)
 
         if market_is_open:
             print("Market is open. Running batch collection...")

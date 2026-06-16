@@ -3,7 +3,9 @@ import unittest
 from unittest.mock import patch
 
 from src.settings import (
+    get_bool_env,
     get_database_url,
+    get_int_env,
     get_sqlalchemy_database_url,
     normalize_postgres_url_for_psycopg,
     normalize_postgres_url_for_sqlalchemy,
@@ -48,6 +50,44 @@ class SettingsTests(unittest.TestCase):
                 get_sqlalchemy_database_url(),
                 "postgresql+psycopg2://u:p@h/db",
             )
+
+    def test_get_bool_env_reads_common_values(self):
+        true_values = ["1", "true", "YES", "y", "on"]
+        false_values = ["0", "false", "NO", "n", "off"]
+
+        for value in true_values:
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"FLAG": value}, clear=True):
+                    self.assertTrue(get_bool_env("FLAG"))
+
+        for value in false_values:
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"FLAG": value}, clear=True):
+                    self.assertFalse(get_bool_env("FLAG", default=True))
+
+    def test_get_bool_env_uses_default_and_rejects_invalid_values(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(get_bool_env("MISSING_FLAG", default=True))
+
+        with patch.dict(os.environ, {"FLAG": "maybe"}, clear=True):
+            with self.assertRaises(ValueError):
+                get_bool_env("FLAG")
+
+    def test_get_int_env_reads_default_and_minimum(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(get_int_env("COUNT", 5, min_value=1), 5)
+
+        with patch.dict(os.environ, {"COUNT": "12"}, clear=True):
+            self.assertEqual(get_int_env("COUNT", 5, min_value=1), 12)
+
+    def test_get_int_env_rejects_invalid_values(self):
+        with patch.dict(os.environ, {"COUNT": "abc"}, clear=True):
+            with self.assertRaises(ValueError):
+                get_int_env("COUNT", 5)
+
+        with patch.dict(os.environ, {"COUNT": "0"}, clear=True):
+            with self.assertRaises(ValueError):
+                get_int_env("COUNT", 5, min_value=1)
 
 
 if __name__ == "__main__":
