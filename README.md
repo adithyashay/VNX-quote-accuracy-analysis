@@ -59,6 +59,18 @@ Fill in `.env` with the ViaNexus API token and PostgreSQL connection settings.
 
 The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, and match-validity consistency.
 
+To inspect symbol-universe drift without deleting anything:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.cleanup_symbol_drift
+```
+
+To remove outside-universe rows after reviewing the dry-run output:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.cleanup_symbol_drift --apply
+```
+
 ## Dashboard
 
 ```powershell

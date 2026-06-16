@@ -1,10 +1,8 @@
-import os
 import requests
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from dotenv import load_dotenv
 
-load_dotenv()
+from src.settings import get_vianexus_api_token
 
 EASTERN_TIMEZONE = ZoneInfo("America/New_York")
 
@@ -40,7 +38,7 @@ def get_vnx_quotes_batch(symbols):
     Get VNX realtime quotes for multiple symbols in one API call.
     """
 
-    token = os.getenv("VIANEXUS_API_TOKEN")
+    token = get_vianexus_api_token()
 
     symbol_path = build_symbol_path(symbols)
 
@@ -77,7 +75,7 @@ def get_delayed_quotes_batch(symbols):
     Get delayed reference quotes for multiple symbols in one API call.
     """
 
-    token = os.getenv("VIANEXUS_API_TOKEN")
+    token = get_vianexus_api_token()
 
     symbol_path = build_symbol_path(symbols)
 

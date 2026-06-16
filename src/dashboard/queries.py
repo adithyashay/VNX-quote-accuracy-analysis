@@ -1,53 +1,15 @@
-import os
-from datetime import date
-from urllib.parse import quote_plus
-
 import pandas as pd
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
-
-load_dotenv()
+from src.settings import get_sqlalchemy_database_url
 
 
 def get_database_engine():
     """
-    Create a SQLAlchemy engine for PostgreSQL using .env settings.
+    Create a SQLAlchemy engine for PostgreSQL.
     """
 
-    host = os.getenv("POSTGRES_HOST")
-    port = os.getenv("POSTGRES_PORT")
-    database = os.getenv("POSTGRES_DB")
-    user = os.getenv("POSTGRES_USER")
-    password = os.getenv("POSTGRES_PASSWORD")
-
-    missing_values = []
-
-    if not host:
-        missing_values.append("POSTGRES_HOST")
-    if not port:
-        missing_values.append("POSTGRES_PORT")
-    if not database:
-        missing_values.append("POSTGRES_DB")
-    if not user:
-        missing_values.append("POSTGRES_USER")
-    if not password:
-        missing_values.append("POSTGRES_PASSWORD")
-
-    if missing_values:
-        raise ValueError(
-            "Missing PostgreSQL settings in .env: "
-            + ", ".join(missing_values)
-        )
-
-    encoded_user = quote_plus(user)
-    encoded_password = quote_plus(password)
-
-    database_url = (
-    f"postgresql+psycopg2://{encoded_user}:{encoded_password}@{host}:{port}/{database}"
-)
-
-    return create_engine(database_url)
+    return create_engine(get_sqlalchemy_database_url())
 
 
 def get_available_date_range():
