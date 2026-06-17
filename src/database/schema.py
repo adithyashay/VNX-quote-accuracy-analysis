@@ -1,4 +1,5 @@
 from src.database.connection import get_connection
+from src.database.pipeline_health import create_pipeline_health_table
 
 
 def create_tables():
@@ -77,5 +78,7 @@ def create_tables():
             cursor.execute(create_indexes)
 
         connection.commit()
+
+    create_pipeline_health_table()
 
     print("Database tables and indexes created successfully.")

@@ -1,6 +1,10 @@
+from datetime import datetime
+
 import pandas as pd
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 
+from src.market_hours import EASTERN_TIMEZONE
 from src.settings import get_sqlalchemy_database_url
 
 
@@ -257,3 +261,93 @@ def load_timestamp_window_summary(
         )
 
     return pd.DataFrame(rows)
+
+
+def normalize_query_value(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return value
+
+
+def load_pipeline_health_summary():
+    """
+    Load latest pipeline events and quote freshness metrics.
+    """
+
+    engine = get_database_engine()
+    today = datetime.now(EASTERN_TIMEZONE).date()
+
+    freshness_query = """
+        SELECT
+            (
+                SELECT MAX(timestamp_readable)
+                FROM vnx_quotes
+            ) AS latest_vnx_quote_time,
+            (
+                SELECT MAX(delayed_time_readable)
+                FROM delayed_quotes
+            ) AS latest_delayed_quote_time,
+            (
+                SELECT MAX(vnx_time)
+                FROM matched_quote_analysis
+            ) AS latest_matched_quote_time,
+            (
+                SELECT COUNT(*)
+                FROM vnx_quotes
+                WHERE DATE(timestamp_readable) = %(today)s
+            ) AS vnx_rows_today,
+            (
+                SELECT COUNT(*)
+                FROM delayed_quotes
+                WHERE DATE(delayed_time_readable) = %(today)s
+            ) AS delayed_rows_today,
+            (
+                SELECT COUNT(*)
+                FROM matched_quote_analysis
+                WHERE DATE(vnx_time) = %(today)s
+            ) AS matched_rows_today;
+    """
+
+    freshness_df = pd.read_sql_query(
+        freshness_query,
+        engine,
+        params={"today": today},
+    )
+
+    freshness = {}
+
+    if not freshness_df.empty:
+        freshness = {
+            key: normalize_query_value(value)
+            for key, value in freshness_df.iloc[0].to_dict().items()
+        }
+
+    events_query = """
+        SELECT DISTINCT ON (component)
+            component,
+            status,
+            event_time,
+            message,
+            details
+        FROM pipeline_health_events
+        ORDER BY component, event_time DESC;
+    """
+
+    events_columns = ["component", "status", "event_time", "message", "details"]
+
+    try:
+        events_df = pd.read_sql_query(events_query, engine)
+    except SQLAlchemyError:
+        events_df = pd.DataFrame(columns=events_columns)
+
+    if not events_df.empty:
+        events_df["event_time"] = pd.to_datetime(
+            events_df["event_time"],
+            errors="coerce",
+        )
+
+    return {
+        "freshness": freshness,
+        "events": events_df,
+    }

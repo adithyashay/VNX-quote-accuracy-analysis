@@ -8,6 +8,7 @@ from src.dashboard.queries import (
     get_symbols,
     get_sectors,
     load_matched_data,
+    load_pipeline_health_summary,
     load_raw_data_coverage,
     load_timestamp_window_summary,
 )
@@ -39,6 +40,12 @@ from src.dashboard.exports import (
     dataframe_to_csv_bytes,
     clean_export_dataframe,
     build_export_filename,
+)
+from src.dashboard.health import (
+    calculate_freshness_status,
+    format_age,
+    format_timestamp,
+    get_latest_component_event,
 )
 from src.dashboard.styles import (
     apply_page_config,
@@ -100,6 +107,83 @@ def cached_window_summary(
         selected_symbols=selected_symbols,
         selected_sectors=selected_sectors,
     )
+
+
+@st.cache_data(ttl=60)
+def cached_pipeline_health():
+    return load_pipeline_health_summary()
+
+
+def render_pipeline_health(health_summary):
+    freshness = health_summary.get("freshness", {})
+    events_df = health_summary.get("events", pd.DataFrame())
+
+    latest_matched_time = freshness.get("latest_matched_quote_time")
+    freshness_status = calculate_freshness_status(latest_matched_time)
+
+    status_message = (
+        f"{freshness_status['label']}: {freshness_status['message']} "
+        f"Data age: {format_age(freshness_status['age_seconds'])}."
+    )
+
+    if freshness_status["level"] == "fresh":
+        st.success(status_message)
+    elif freshness_status["level"] == "delayed":
+        st.warning(status_message)
+    elif freshness_status["level"] == "stale":
+        st.error(status_message)
+    else:
+        st.info(status_message)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Latest Matched Quote",
+        format_timestamp(latest_matched_time),
+    )
+    col2.metric(
+        "Latest VNX Quote",
+        format_timestamp(freshness.get("latest_vnx_quote_time")),
+    )
+    col3.metric(
+        "Matched Rows Today",
+        format_number(freshness.get("matched_rows_today")),
+    )
+    col4.metric(
+        "VNX Rows Today",
+        format_number(freshness.get("vnx_rows_today")),
+    )
+
+    collector_event = get_latest_component_event(events_df, "collector")
+    matcher_event = get_latest_component_event(events_df, "matcher")
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Pipeline Health")
+    st.sidebar.write(f"Freshness: {freshness_status['label']}")
+    st.sidebar.write(f"Data age: {format_age(freshness_status['age_seconds'])}")
+
+    if collector_event:
+        st.sidebar.write(f"Collector: {collector_event['status']}")
+
+    if matcher_event:
+        st.sidebar.write(f"Matcher: {matcher_event['status']}")
+
+    with st.expander("Pipeline Health Details"):
+        if events_df.empty:
+            st.caption("No pipeline health events recorded yet.")
+            return
+
+        display_events = events_df.copy()
+        display_events["event_time"] = display_events["event_time"].apply(
+            format_timestamp
+        )
+        display_events["details"] = display_events["details"].astype(str)
+
+        st.dataframe(
+            display_events,
+            use_container_width=True,
+            height=180,
+        )
 
 
 def render_metric_row(overall_metrics):
@@ -368,7 +452,7 @@ def render_ticker_deep_dive(df, symbols_df, filters):
         sector = company_row.iloc[0]["sector"]
         sub_industry = company_row.iloc[0]["sub_industry"]
 
-        st.subheader(f"{selected_ticker} — {company_name}")
+        st.subheader(f"{selected_ticker} - {company_name}")
         st.caption(f"Sector: {sector} | Sub-industry: {sub_industry}")
     else:
         st.subheader(selected_ticker)
@@ -592,6 +676,9 @@ def main():
     apply_custom_styles()
     render_header()
 
+    health_summary = cached_pipeline_health()
+    render_pipeline_health(health_summary)
+
     min_date, max_date = cached_date_range()
 
     if min_date is None or max_date is None:
@@ -629,7 +716,7 @@ def main():
         if filters["timestamp_window_option"] == "All"
         else (
             "valid matches with timestamp window "
-            f"≤ {filters['max_time_gap_seconds']} seconds"
+            f"<= {filters['max_time_gap_seconds']} seconds"
         )
     )
 

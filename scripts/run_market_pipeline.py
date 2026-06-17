@@ -1,6 +1,4 @@
 import time
-from datetime import datetime, time as dt_time
-from zoneinfo import ZoneInfo
 
 from config.symbols import ACTIVE_SYMBOLS
 from src.settings import get_bool_env, get_int_env
@@ -18,6 +16,8 @@ from src.database.writer import (
     insert_delayed_quote_rows,
     insert_matched_quote_rows,
 )
+from src.database.pipeline_health import record_pipeline_event
+from src.market_hours import is_market_open_now
 
 
 # -----------------------------
@@ -46,29 +46,29 @@ MATCHER_VALID_WINDOW_SECONDS = get_int_env(
     min_value=1,
 )
 
-EASTERN_TIMEZONE = ZoneInfo("America/New_York")
-
-MARKET_OPEN = dt_time(9, 30)
-MARKET_CLOSE = dt_time(16, 0)
-
 SAVE_CSV_BACKUP = get_bool_env("SAVE_CSV_BACKUP", True)
 
+HEALTH_HEARTBEAT_INTERVAL_SECONDS = get_int_env(
+    "HEALTH_HEARTBEAT_INTERVAL_SECONDS",
+    300,
+    min_value=1,
+)
 
-# -----------------------------
-# Market hours check
-# -----------------------------
 
-def is_market_open_now():
+def write_pipeline_event(component, status, message=None, details=None):
     """
-    Check if current Eastern Time is within regular US market hours.
+    Record health events without letting observability stop collection.
     """
 
-    current_time = datetime.now(EASTERN_TIMEZONE)
-
-    is_weekday = current_time.weekday() < 5
-    is_market_hours = MARKET_OPEN <= current_time.time() <= MARKET_CLOSE
-
-    return is_weekday and is_market_hours, current_time
+    try:
+        record_pipeline_event(
+            component=component,
+            status=status,
+            message=message,
+            details=details,
+        )
+    except Exception as error:
+        print("Pipeline health event failed:", error)
 
 
 # -----------------------------
@@ -98,6 +98,7 @@ def summarize_status(status):
         for key, value in status.items()
         if key != "rows"
     }
+
 
 def collect_all_symbols_in_batches():
     """
@@ -244,6 +245,16 @@ def run_matcher():
     print("PostgreSQL matched rows processed:", db_inserted_matches)
     print("Save status:", save_status["reason"])
 
+    return {
+        "total_matches": total_matches,
+        "valid_matches": valid_matches,
+        "invalid_matches": invalid_matches,
+        "symbol_count": symbol_count,
+        "csv_saved_rows": save_status["saved_rows"],
+        "db_inserted_matches": db_inserted_matches,
+        "save_reason": save_status["reason"],
+    }
+
 
 # -----------------------------
 # Main pipeline loop
@@ -255,9 +266,26 @@ def main():
     """
 
     last_matcher_run_time = 0
+    last_health_heartbeat_time = 0
+
+    write_pipeline_event(
+        "market_pipeline",
+        "started",
+        "Market pipeline started.",
+        {
+            "active_symbols": len(SYMBOLS),
+            "batch_size": BATCH_SIZE,
+            "collection_interval_seconds": COLLECTION_INTERVAL_SECONDS,
+            "matcher_interval_seconds": MATCHER_INTERVAL_SECONDS,
+            "matcher_valid_window_seconds": MATCHER_VALID_WINDOW_SECONDS,
+            "save_csv_backup": SAVE_CSV_BACKUP,
+            "health_heartbeat_interval_seconds": HEALTH_HEARTBEAT_INTERVAL_SECONDS,
+        },
+    )
 
     while True:
         market_is_open, current_time = is_market_open_now()
+        current_timestamp = time.time()
 
         print()
         print("==================================================")
@@ -265,11 +293,24 @@ def main():
         print("Active Symbols:", len(SYMBOLS))
         print("Batch Size:", BATCH_SIZE)
         print("CSV Backup Enabled:", SAVE_CSV_BACKUP)
+        print("Health Heartbeat Seconds:", HEALTH_HEARTBEAT_INTERVAL_SECONDS)
 
         if market_is_open:
             print("Market is open. Running batch collection...")
 
             collection_summary = collect_all_symbols_in_batches()
+            collection_status = (
+                "success"
+                if collection_summary["error_count"] == 0
+                else "warning"
+            )
+
+            write_pipeline_event(
+                "collector",
+                collection_status,
+                "Collection cycle completed.",
+                collection_summary,
+            )
 
             print()
             print("Collection Summary")
@@ -286,8 +327,6 @@ def main():
             print("Cleaned existing delayed duplicates:", collection_summary["cleaned_delayed_duplicates"])
             print("Batch collection errors:", collection_summary["error_count"])
 
-            current_timestamp = time.time()
-
             should_run_matcher = (
                 current_timestamp - last_matcher_run_time
             ) >= MATCHER_INTERVAL_SECONDS
@@ -295,8 +334,25 @@ def main():
             if should_run_matcher:
                 print()
                 print("Running matcher...")
-                run_matcher()
-                last_matcher_run_time = current_timestamp
+                try:
+                    matcher_summary = run_matcher()
+
+                    write_pipeline_event(
+                        "matcher",
+                        "success",
+                        "Matcher cycle completed.",
+                        matcher_summary,
+                    )
+
+                    last_matcher_run_time = current_timestamp
+
+                except Exception as error:
+                    print("Matcher error:", error)
+                    write_pipeline_event(
+                        "matcher",
+                        "error",
+                        str(error),
+                    )
 
             else:
                 seconds_until_next_matcher = int(
@@ -309,8 +365,35 @@ def main():
                 print("Skipping matcher this cycle.")
                 print("Next matcher run in about", seconds_until_next_matcher, "seconds.")
 
+            write_pipeline_event(
+                "market_pipeline",
+                "running",
+                "Market pipeline cycle completed.",
+                {
+                    "current_eastern_time": current_time.isoformat(),
+                    "collection_errors": collection_summary["error_count"],
+                },
+            )
+
+            last_health_heartbeat_time = current_timestamp
+
         else:
             print("Market is closed. Waiting...")
+
+            should_record_idle_heartbeat = (
+                current_timestamp - last_health_heartbeat_time
+            ) >= HEALTH_HEARTBEAT_INTERVAL_SECONDS
+
+            if should_record_idle_heartbeat:
+                write_pipeline_event(
+                    "market_pipeline",
+                    "idle",
+                    "Market is closed.",
+                    {
+                        "current_eastern_time": current_time.isoformat(),
+                    },
+                )
+                last_health_heartbeat_time = current_timestamp
 
         print()
         print("Waiting", COLLECTION_INTERVAL_SECONDS, "seconds...")

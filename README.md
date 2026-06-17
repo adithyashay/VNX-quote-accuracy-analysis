@@ -36,7 +36,8 @@ The project collects VNX quotes and delayed/reference quotes, matches them by ti
 5. Insert raw VNX and delayed quote data into PostgreSQL
 6. Run VNX-driven timestamp matching
 7. Save matched data into PostgreSQL
-8. Display stats in Streamlit dashboard
+8. Record collector, matcher, and worker health events
+9. Display stats and data freshness in Streamlit dashboard
 ```
 
 ## Local Setup
@@ -57,7 +58,7 @@ Fill in `.env` with the ViaNexus API token and PostgreSQL connection settings.
 .\.venv\Scripts\python.exe -m scripts.run_database_health_check
 ```
 
-The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, and match-validity consistency.
+The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, match-validity consistency, and latest pipeline health events.
 
 To inspect symbol-universe drift without deleting anything:
 
@@ -78,6 +79,7 @@ To remove outside-universe rows after reviewing the dry-run output:
 ```
 
 The dashboard reads from PostgreSQL. Raw CSVs are backup artifacts, not the preferred source for dashboard analysis.
+The top of the dashboard shows data freshness, latest quote timestamps, rows collected today, and latest collector/matcher events.
 
 ## Automation And Deployment Direction
 
@@ -86,6 +88,7 @@ For production, keep collection and dashboard serving as separate processes:
 ```text
 Trading-hours collector
     -> writes raw + matched data to PostgreSQL
+    -> writes health events to PostgreSQL
     -> runs on a scheduler/server during market hours
 
 Streamlit dashboard
@@ -99,3 +102,16 @@ Recommended next steps:
 2. Host PostgreSQL somewhere reachable by both the collector and dashboard.
 3. Deploy Streamlit separately with `.env`/secrets configured in the hosting platform.
 4. Add basic access control before sharing the dashboard.
+
+Useful worker settings:
+
+```text
+BATCH_SIZE=100
+COLLECTION_INTERVAL_SECONDS=60
+MATCHER_INTERVAL_SECONDS=300
+MATCHER_VALID_WINDOW_SECONDS=60
+SAVE_CSV_BACKUP=false
+HEALTH_HEARTBEAT_INTERVAL_SECONDS=300
+```
+
+For cloud workers, `SAVE_CSV_BACKUP=false` is recommended because PostgreSQL is the system of record.

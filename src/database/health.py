@@ -93,6 +93,21 @@ def get_valid_match_counts(cursor):
     )
 
 
+def get_latest_pipeline_events(cursor):
+    return fetch_all(
+        cursor,
+        """
+        SELECT DISTINCT ON (component)
+            component,
+            status,
+            event_time,
+            message
+        FROM pipeline_health_events
+        ORDER BY component, event_time DESC;
+        """,
+    )
+
+
 def get_match_quality_summary(cursor):
     return fetch_all(
         cursor,
@@ -136,6 +151,11 @@ def build_markdown_report(results):
         for table_name, symbols in results["symbols_outside_universe"].items()
     )
 
+    pipeline_event_rows = "\n".join(
+        f"| {component} | {status} | {event_time} | {message or ''} |"
+        for component, status, event_time, message in results["latest_pipeline_events"]
+    )
+
     return f"""# Database Health Report
 
 ## Table Counts
@@ -146,6 +166,7 @@ def build_markdown_report(results):
 | vnx_quotes | {format_count(results["vnx_quotes"])} |
 | delayed_quotes | {format_count(results["delayed_quotes"])} |
 | matched_quote_analysis | {format_count(results["matched_quote_analysis"])} |
+| pipeline_health_events | {format_count(results["pipeline_health_events"])} |
 
 ## Duplicate Key Groups
 
@@ -191,6 +212,12 @@ def build_markdown_report(results):
 | valid_match | Rows |
 |---|---:|
 {valid_match_rows}
+
+## Latest Pipeline Events
+
+| Component | Status | Event Time | Message |
+|---|---|---|---|
+{pipeline_event_rows if pipeline_event_rows else "| None | None | None | None |"}
 """
 
 
@@ -204,6 +231,10 @@ def generate_database_health_report():
                 "matched_quote_analysis": fetch_one(
                     cursor,
                     "SELECT COUNT(*) FROM matched_quote_analysis;",
+                ),
+                "pipeline_health_events": fetch_one(
+                    cursor,
+                    "SELECT COUNT(*) FROM pipeline_health_events;",
                 ),
                 "vnx_duplicate_groups": count_duplicate_groups(
                     cursor,
@@ -260,6 +291,7 @@ def generate_database_health_report():
                 ),
                 "match_quality": get_match_quality_summary(cursor),
                 "valid_match_counts": get_valid_match_counts(cursor),
+                "latest_pipeline_events": get_latest_pipeline_events(cursor),
             }
 
     report = build_markdown_report(results)
