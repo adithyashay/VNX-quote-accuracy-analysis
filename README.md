@@ -42,8 +42,10 @@ The project collects VNX quotes and delayed/reference quotes, matches them by ti
 
 ## Local Setup
 
+Use one project-local virtual environment: `.venv`.
+
 ```powershell
-python -m venv .venv
+py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
@@ -80,6 +82,8 @@ To remove outside-universe rows after reviewing the dry-run output:
 
 The dashboard reads from PostgreSQL. Raw CSVs are backup artifacts, not the preferred source for dashboard analysis.
 The top of the dashboard shows data freshness, latest quote timestamps, rows collected today, and latest collector/matcher events.
+
+Avoid creating a second environment named `venv`; keeping only `.venv` prevents Streamlit from launching with missing packages.
 
 ## Automation And Deployment Direction
 
