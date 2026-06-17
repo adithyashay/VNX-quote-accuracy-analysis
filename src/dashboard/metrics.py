@@ -127,37 +127,43 @@ def calculate_error_threshold_summary(df):
     return pd.DataFrame(rows)
 
 
-def calculate_raw_coverage_metrics(raw_coverage_df):
+def calculate_data_coverage_metrics(data_coverage_df):
     """
-    Calculate high-level raw data coverage metrics.
+    Calculate high-level matched-first data coverage metrics.
     """
 
-    if raw_coverage_df.empty:
+    if data_coverage_df.empty:
         return {
             "symbols_loaded": 0,
             "symbols_with_vnx": 0,
             "symbols_with_delayed": 0,
             "symbols_with_both": 0,
+            "symbols_with_matched": 0,
             "total_vnx_rows": 0,
             "total_delayed_rows": 0,
             "total_matched_rows": 0,
+            "latest_matched_time": None,
         }
 
-    symbols_with_vnx = (raw_coverage_df["vnx_raw_rows"] > 0).sum()
-    symbols_with_delayed = (raw_coverage_df["delayed_raw_rows"] > 0).sum()
+    symbols_with_vnx = (data_coverage_df["vnx_raw_rows"] > 0).sum()
+    symbols_with_delayed = (data_coverage_df["delayed_raw_rows"] > 0).sum()
     symbols_with_both = (
-        (raw_coverage_df["vnx_raw_rows"] > 0)
-        & (raw_coverage_df["delayed_raw_rows"] > 0)
+        (data_coverage_df["vnx_raw_rows"] > 0)
+        & (data_coverage_df["delayed_raw_rows"] > 0)
     ).sum()
 
     return {
-        "symbols_loaded": len(raw_coverage_df),
+        "symbols_loaded": len(data_coverage_df),
         "symbols_with_vnx": symbols_with_vnx,
         "symbols_with_delayed": symbols_with_delayed,
         "symbols_with_both": symbols_with_both,
-        "total_vnx_rows": raw_coverage_df["vnx_raw_rows"].sum(),
-        "total_delayed_rows": raw_coverage_df["delayed_raw_rows"].sum(),
-        "total_matched_rows": raw_coverage_df["matched_rows"].sum(),
+        "symbols_with_matched": (data_coverage_df["matched_rows"] > 0).sum(),
+        "total_vnx_rows": data_coverage_df["vnx_raw_rows"].sum(),
+        "total_delayed_rows": data_coverage_df["delayed_raw_rows"].sum(),
+        "total_matched_rows": data_coverage_df["matched_rows"].sum(),
+        "latest_matched_time": data_coverage_df["latest_matched_time"].max()
+        if "latest_matched_time" in data_coverage_df.columns
+        else None,
     }
 
 

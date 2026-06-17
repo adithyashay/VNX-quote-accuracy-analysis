@@ -11,7 +11,7 @@ from src.dashboard.queries import (
     get_sectors,
     load_matched_data,
     load_pipeline_health_summary,
-    load_raw_data_coverage,
+    load_data_coverage,
     load_timestamp_window_summary,
 )
 from src.dashboard.metrics import (
@@ -19,7 +19,7 @@ from src.dashboard.metrics import (
     calculate_symbol_metrics,
     calculate_ticker_metrics,
     calculate_error_threshold_summary,
-    calculate_raw_coverage_metrics,
+    calculate_data_coverage_metrics,
     prepare_display_table,
     format_percent,
     format_number,
@@ -104,8 +104,8 @@ def cached_matched_data(
 
 
 @st.cache_data(ttl=300)
-def cached_raw_coverage():
-    return load_raw_data_coverage()
+def cached_data_coverage():
+    return load_data_coverage()
 
 
 @st.cache_data(ttl=300)
@@ -144,7 +144,7 @@ def render_pipeline_health(health_summary):
     status_message = (
         f"{freshness_status['label']}: {freshness_status['message']} "
         f"Matched age: {format_age(freshness_status['matched_age_seconds'])}. "
-        f"Raw VNX age: {format_age(freshness_status['raw_age_seconds'])}."
+        f"VNX age: {format_age(freshness_status['raw_age_seconds'])}."
     )
 
     if freshness_status["level"] == "fresh":
@@ -171,12 +171,16 @@ def render_pipeline_health(health_summary):
         format_number(freshness.get("matched_rows_today")),
     )
     col4.metric(
-        "VNX Rows Today",
+        "Source Rows Today",
         format_number(freshness.get("vnx_rows_today")),
     )
 
     collector_event = get_latest_component_event(events_df, "collector")
     matcher_event = get_latest_component_event(events_df, "matcher")
+    scheduled_event = get_latest_component_event(
+        events_df,
+        "scheduled_matched_pipeline",
+    )
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("Pipeline Health")
@@ -185,8 +189,11 @@ def render_pipeline_health(health_summary):
         f"Matched age: {format_age(freshness_status['matched_age_seconds'])}"
     )
     st.sidebar.write(
-        f"Raw VNX age: {format_age(freshness_status['raw_age_seconds'])}"
+        f"VNX age: {format_age(freshness_status['raw_age_seconds'])}"
     )
+
+    if scheduled_event:
+        st.sidebar.write(f"Scheduled pipeline: {scheduled_event['status']}")
 
     if collector_event:
         st.sidebar.write(f"Collector: {collector_event['status']}")
@@ -214,7 +221,7 @@ def render_pipeline_health(health_summary):
 
 def render_metric_row(overall_metrics):
     """
-    Render KPI cards.
+    Display KPI cards.
     """
 
     col1, col2, col3, col4 = st.columns(4)
@@ -413,13 +420,13 @@ def render_executive_overview(df, symbol_stats, threshold_df, filters):
 
     with col2:
         st.plotly_chart(
-        create_best_symbols_chart(symbol_stats, filters["top_n"]),
-        use_container_width=True,
-    )
+            create_best_symbols_chart(symbol_stats, filters["top_n"]),
+            use_container_width=True,
+        )
 
     st.plotly_chart(
-    create_directional_error_by_symbol_chart(symbol_stats, filters["top_n"]),
-    use_container_width=True,
+        create_directional_error_by_symbol_chart(symbol_stats, filters["top_n"]),
+        use_container_width=True,
     )
 
 
@@ -600,23 +607,26 @@ def render_timestamp_window_analysis(filters):
     )
 
 
-def render_raw_data_coverage():
-    st.header("Raw Data Coverage")
+def render_data_coverage():
+    st.header("Data Coverage")
 
-    raw_df = cached_raw_coverage()
-    coverage_metrics = calculate_raw_coverage_metrics(raw_df)
+    data_coverage_df = cached_data_coverage()
+    coverage_metrics = calculate_data_coverage_metrics(data_coverage_df)
 
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Symbols Loaded", format_number(coverage_metrics["symbols_loaded"]))
-    col2.metric("Symbols with VNX", format_number(coverage_metrics["symbols_with_vnx"]))
+    col2.metric(
+        "Symbols with Matched Data",
+        format_number(coverage_metrics["symbols_with_matched"]),
+    )
     col3.metric(
-        "Symbols with Delayed",
-        format_number(coverage_metrics["symbols_with_delayed"]),
+        "Matched Rows",
+        format_number(coverage_metrics["total_matched_rows"]),
     )
     col4.metric(
-        "Symbols with Both",
-        format_number(coverage_metrics["symbols_with_both"]),
+        "Latest Matched Quote",
+        format_timestamp(coverage_metrics["latest_matched_time"]),
     )
 
     col5, col6, col7 = st.columns(3)
@@ -627,20 +637,20 @@ def render_raw_data_coverage():
         format_number(coverage_metrics["total_delayed_rows"]),
     )
     col7.metric(
-        "Matched Rows",
-        format_number(coverage_metrics["total_matched_rows"]),
+        "Symbols with Raw Both",
+        format_number(coverage_metrics["symbols_with_both"]),
     )
 
     st.markdown("---")
 
-    st.subheader("Symbol-Level Raw Coverage")
+    st.subheader("Symbol-Level Data Coverage")
 
-    st.dataframe(raw_df, use_container_width=True, height=600)
+    st.dataframe(data_coverage_df, use_container_width=True, height=600)
 
     st.download_button(
-        label="Download Raw Data Coverage CSV",
-        data=dataframe_to_csv_bytes(clean_export_dataframe(raw_df)),
-        file_name="raw_data_coverage.csv",
+        label="Download Data Coverage CSV",
+        data=dataframe_to_csv_bytes(clean_export_dataframe(data_coverage_df)),
+        file_name="data_coverage.csv",
         mime="text/csv",
     )
 
@@ -687,12 +697,12 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
             mime="text/csv",
         )
 
-        raw_df = cached_raw_coverage()
+        data_coverage_df = cached_data_coverage()
 
         st.download_button(
-            label="Download Raw Data Coverage",
-            data=dataframe_to_csv_bytes(clean_export_dataframe(raw_df)),
-            file_name="raw_data_coverage.csv",
+            label="Download Data Coverage",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(data_coverage_df)),
+            file_name="data_coverage.csv",
             mime="text/csv",
         )
 
@@ -760,7 +770,7 @@ def main():
             "Symbol-Level Accuracy",
             "Ticker Deep Dive",
             "Timestamp Window Analysis",
-            "Raw Data Coverage",
+            "Data Coverage",
             "Downloads",
         ]
     )
@@ -778,7 +788,7 @@ def main():
         render_timestamp_window_analysis(filters)
 
     with tab5:
-        render_raw_data_coverage()
+        render_data_coverage()
 
     with tab6:
         render_downloads(df, symbol_stats, threshold_df, filters)

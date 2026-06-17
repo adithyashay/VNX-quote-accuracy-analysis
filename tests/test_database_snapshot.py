@@ -15,8 +15,6 @@ class DatabaseSnapshotTests(unittest.TestCase):
             table_names,
             [
                 "sp500_symbols",
-                "vnx_quotes",
-                "delayed_quotes",
                 "matched_quote_analysis",
             ],
         )
@@ -25,11 +23,11 @@ class DatabaseSnapshotTests(unittest.TestCase):
         query = build_export_query(TABLE_SPECS[1])
 
         self.assertIn("COPY", query)
-        self.assertIn("FROM \"vnx_quotes\"", query)
+        self.assertIn("FROM \"matched_quote_analysis\"", query)
         self.assertIn("WITH CSV HEADER", query)
 
     def test_import_query_uses_conflict_key(self):
-        query = build_import_query(TABLE_SPECS[3], "staging_matched_quote_analysis")
+        query = build_import_query(TABLE_SPECS[1], "staging_matched_quote_analysis")
 
         self.assertIn("ON CONFLICT (\"symbol\", \"vnx_time\")", query)
         self.assertIn("\"percentage_error\" = EXCLUDED.\"percentage_error\"", query)

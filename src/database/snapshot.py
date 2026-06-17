@@ -25,23 +25,6 @@ TABLE_SPECS = [
         order_by=("symbol",),
     ),
     TableSnapshotSpec(
-        table_name="vnx_quotes",
-        columns=("symbol", "vnx_price", "timestamp_readable", "collected_at"),
-        conflict_columns=("symbol", "timestamp_readable"),
-        order_by=("timestamp_readable", "symbol"),
-    ),
-    TableSnapshotSpec(
-        table_name="delayed_quotes",
-        columns=(
-            "symbol",
-            "delayed_price",
-            "delayed_time_readable",
-            "collected_at",
-        ),
-        conflict_columns=("symbol", "delayed_time_readable"),
-        order_by=("delayed_time_readable", "symbol"),
-    ),
-    TableSnapshotSpec(
         table_name="matched_quote_analysis",
         columns=(
             "symbol",

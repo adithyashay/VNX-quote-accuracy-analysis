@@ -151,9 +151,9 @@ def load_matched_data(
     return df
 
 
-def load_raw_data_coverage():
+def load_data_coverage():
     """
-    Load raw data coverage summary from PostgreSQL.
+    Load matched-first data coverage summary from PostgreSQL.
     """
 
     engine = get_database_engine()
@@ -170,7 +170,9 @@ def load_raw_data_coverage():
             v.earliest_vnx_time,
             v.latest_vnx_time,
             d.earliest_delayed_time,
-            d.latest_delayed_time
+            d.latest_delayed_time,
+            m.earliest_matched_time,
+            m.latest_matched_time
         FROM sp500_symbols s
         LEFT JOIN (
             SELECT
@@ -195,7 +197,9 @@ def load_raw_data_coverage():
         LEFT JOIN (
             SELECT
                 symbol,
-                COUNT(*) AS matched_rows
+                COUNT(*) AS matched_rows,
+                MIN(vnx_time) AS earliest_matched_time,
+                MAX(vnx_time) AS latest_matched_time
             FROM matched_quote_analysis
             GROUP BY symbol
         ) m
@@ -279,34 +283,62 @@ def load_pipeline_health_summary():
     today = datetime.now(EASTERN_TIMEZONE).date()
 
     freshness_query = """
+        WITH freshness AS (
+            SELECT
+                (
+                    SELECT MAX(timestamp_readable)
+                    FROM vnx_quotes
+                ) AS latest_raw_vnx_quote_time,
+                (
+                    SELECT MAX(delayed_time_readable)
+                    FROM delayed_quotes
+                ) AS latest_raw_delayed_quote_time,
+                (
+                    SELECT MAX(vnx_time)
+                    FROM matched_quote_analysis
+                ) AS latest_matched_quote_time,
+                (
+                    SELECT MAX(delayed_time)
+                    FROM matched_quote_analysis
+                ) AS latest_matched_delayed_quote_time,
+                (
+                    SELECT COUNT(*)
+                    FROM vnx_quotes
+                    WHERE DATE(timestamp_readable) = %(today)s
+                ) AS raw_vnx_rows_today,
+                (
+                    SELECT COUNT(*)
+                    FROM delayed_quotes
+                    WHERE DATE(delayed_time_readable) = %(today)s
+                ) AS raw_delayed_rows_today,
+                (
+                    SELECT COUNT(*)
+                    FROM matched_quote_analysis
+                    WHERE DATE(vnx_time) = %(today)s
+                ) AS matched_rows_today
+        )
         SELECT
-            (
-                SELECT MAX(timestamp_readable)
-                FROM vnx_quotes
+            COALESCE(
+                latest_raw_vnx_quote_time,
+                latest_matched_quote_time
             ) AS latest_vnx_quote_time,
-            (
-                SELECT MAX(delayed_time_readable)
-                FROM delayed_quotes
+            COALESCE(
+                latest_raw_delayed_quote_time,
+                latest_matched_delayed_quote_time
             ) AS latest_delayed_quote_time,
-            (
-                SELECT MAX(vnx_time)
-                FROM matched_quote_analysis
-            ) AS latest_matched_quote_time,
-            (
-                SELECT COUNT(*)
-                FROM vnx_quotes
-                WHERE DATE(timestamp_readable) = %(today)s
-            ) AS vnx_rows_today,
-            (
-                SELECT COUNT(*)
-                FROM delayed_quotes
-                WHERE DATE(delayed_time_readable) = %(today)s
-            ) AS delayed_rows_today,
-            (
-                SELECT COUNT(*)
-                FROM matched_quote_analysis
-                WHERE DATE(vnx_time) = %(today)s
-            ) AS matched_rows_today;
+            latest_matched_quote_time,
+            CASE
+                WHEN raw_vnx_rows_today > 0 THEN raw_vnx_rows_today
+                ELSE matched_rows_today
+            END AS vnx_rows_today,
+            CASE
+                WHEN raw_delayed_rows_today > 0 THEN raw_delayed_rows_today
+                ELSE matched_rows_today
+            END AS delayed_rows_today,
+            matched_rows_today,
+            raw_vnx_rows_today,
+            raw_delayed_rows_today
+        FROM freshness;
     """
 
     freshness_df = pd.read_sql_query(

@@ -137,8 +137,8 @@ def calculate_freshness_status(
     if raw_age_seconds is None:
         return {
             "level": "delayed",
-            "label": "No Raw Data",
-            "message": "Raw VNX quotes have not been collected yet.",
+            "label": "No Source Data",
+            "message": "Source VNX quotes have not been collected yet.",
             "age_seconds": matched_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": None,
@@ -148,8 +148,8 @@ def calculate_freshness_status(
     if raw_age_seconds > raw_stale_after_seconds:
         return {
             "level": "stale",
-            "label": "Raw Data Stale",
-            "message": "Raw VNX quote collection is stale during market hours.",
+            "label": "Source Data Stale",
+            "message": "Source VNX quote collection is stale during market hours.",
             "age_seconds": raw_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,
@@ -159,8 +159,8 @@ def calculate_freshness_status(
     if raw_age_seconds > raw_warning_after_seconds:
         return {
             "level": "delayed",
-            "label": "Raw Data Delayed",
-            "message": "Raw VNX quote collection is falling behind.",
+            "label": "Source Data Delayed",
+            "message": "Source VNX quote collection is falling behind.",
             "age_seconds": raw_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,
@@ -171,7 +171,7 @@ def calculate_freshness_status(
         return {
             "level": "delayed",
             "label": "Matcher Pending",
-            "message": "Raw data is live, but matched analysis has not run yet.",
+            "message": "Source data is live, but matched analysis has not run yet.",
             "age_seconds": None,
             "matched_age_seconds": None,
             "raw_age_seconds": raw_age_seconds,
@@ -182,7 +182,7 @@ def calculate_freshness_status(
         return {
             "level": "fresh",
             "label": "On Schedule",
-            "message": "Raw data is live and matched analysis is within the matcher schedule.",
+            "message": "Source data is live and matched analysis is within the matcher schedule.",
             "age_seconds": matched_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,
@@ -193,7 +193,7 @@ def calculate_freshness_status(
         return {
             "level": "delayed",
             "label": "Matcher Delayed",
-            "message": "Raw data is live, but matched analysis missed its expected schedule.",
+            "message": "Source data is live, but matched analysis missed its expected schedule.",
             "age_seconds": matched_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,
@@ -203,7 +203,7 @@ def calculate_freshness_status(
     return {
         "level": "stale",
         "label": "Matcher Stale",
-        "message": "Raw data is live, but matched analysis is stale during market hours.",
+        "message": "Source data is live, but matched analysis is stale during market hours.",
         "age_seconds": matched_age_seconds,
         "matched_age_seconds": matched_age_seconds,
         "raw_age_seconds": raw_age_seconds,

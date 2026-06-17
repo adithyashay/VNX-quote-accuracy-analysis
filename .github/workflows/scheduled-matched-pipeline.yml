@@ -1,0 +1,39 @@
+name: Scheduled matched quote pipeline
+
+on:
+  schedule:
+    # GitHub cron uses UTC. This broad window covers US market hours in
+    # daylight and standard time; the Python job also checks Eastern hours.
+    - cron: "*/15 13-21 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  collect-and-match:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      VIANEXUS_API_TOKEN: ${{ secrets.VIANEXUS_API_TOKEN }}
+      BATCH_SIZE: "100"
+      COLLECTION_INTERVAL_SECONDS: "900"
+      MATCHER_INTERVAL_SECONDS: "900"
+      MATCHER_VALID_WINDOW_SECONDS: "60"
+      MATCHED_RETENTION_DAYS: "0"
+      SAVE_CSV_BACKUP: "false"
+      HEALTH_HEARTBEAT_INTERVAL_SECONDS: "900"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run scheduled matched-only cycle
+        run: python -m scripts.run_scheduled_matched_pipeline

@@ -59,20 +59,20 @@ def apply_custom_styles():
 
 def render_header():
     """
-    Render dashboard header.
+    Display dashboard header.
     """
 
     st.title("VNX Quote Accuracy Dashboard")
 
     st.caption(
         "PostgreSQL-backed dashboard for S&P 500 VNX quote accuracy, "
-        "timestamp matching, symbol-level analysis, and raw data coverage."
+        "timestamp matching, symbol-level analysis, and matched data coverage."
     )
 
 
 def render_methodology_note():
     """
-    Render methodology note used across the dashboard.
+    Display methodology note used across the dashboard.
     """
 
     with st.expander("Methodology"):
