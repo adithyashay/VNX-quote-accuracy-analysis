@@ -53,10 +53,29 @@ Use a strong dashboard password and share it only with approved users.
 
 The cloud database starts with tables and symbols only. Existing local PostgreSQL quote history will not appear in the cloud unless we do a one-time migration.
 
-Two valid options:
+Use `docs/historical-data-migration.md` to export local history and import it into Render Postgres before sharing the dashboard broadly.
 
-- Start fresh in production and let the worker collect new data going forward.
-- Export local PostgreSQL data and restore/import it into Render Postgres before sharing the dashboard.
+## Boss Access
+
+After deployment, Render gives the dashboard a public HTTPS URL, usually similar to:
+
+```text
+https://vnx-quote-dashboard.onrender.com
+```
+
+Send the URL and username in one message. Send the password separately.
+
+Example message:
+
+```text
+Hi [Name], the VNX Quote Accuracy Dashboard is live here:
+
+https://vnx-quote-dashboard.onrender.com
+
+Username: [username]
+
+I will send the password separately. The dashboard shows quote accuracy, raw/matched data freshness, and symbol-level analysis.
+```
 
 ## Production Settings
 
