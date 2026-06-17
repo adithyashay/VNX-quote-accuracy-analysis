@@ -71,60 +71,142 @@ def format_age(seconds):
     return f"{days} days"
 
 
+def calculate_age_seconds(latest_time, current_time):
+    normalized_time = normalize_timestamp(latest_time)
+
+    if normalized_time is None:
+        return None
+
+    current_time_naive = current_time.replace(tzinfo=None)
+
+    return max(int((current_time_naive - normalized_time).total_seconds()), 0)
+
+
 def calculate_freshness_status(
     latest_matched_time,
+    latest_raw_time=None,
     now=None,
-    warning_after_seconds=120,
-    stale_after_seconds=300,
+    collection_interval_seconds=60,
+    matcher_interval_seconds=300,
+    collection_grace_seconds=60,
+    matcher_grace_seconds=120,
 ):
     current_time = normalize_current_time(now)
-    latest_time = normalize_timestamp(latest_matched_time)
     market_is_open = is_market_open_at(current_time)
+    matched_age_seconds = calculate_age_seconds(latest_matched_time, current_time)
+    raw_age_seconds = calculate_age_seconds(latest_raw_time, current_time)
 
-    if latest_time is None:
+    if matched_age_seconds is None and raw_age_seconds is None:
         return {
             "level": "no_data",
             "label": "No Data",
-            "message": "No matched quote data is available yet.",
+            "message": "No quote data is available yet.",
             "age_seconds": None,
+            "matched_age_seconds": None,
+            "raw_age_seconds": None,
             "market_is_open": market_is_open,
         }
-
-    current_time_naive = current_time.replace(tzinfo=None)
-    age_seconds = max(int((current_time_naive - latest_time).total_seconds()), 0)
 
     if not market_is_open:
         return {
             "level": "closed",
             "label": "Market Closed",
             "message": "Market is closed; live updates are not expected.",
-            "age_seconds": age_seconds,
+            "age_seconds": matched_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": raw_age_seconds,
             "market_is_open": False,
         }
 
-    if age_seconds <= warning_after_seconds:
+    raw_warning_after_seconds = max(
+        collection_interval_seconds * 2,
+        collection_interval_seconds + collection_grace_seconds,
+    )
+    raw_stale_after_seconds = max(
+        collection_interval_seconds * 5,
+        raw_warning_after_seconds + collection_grace_seconds,
+    )
+
+    matcher_on_schedule_after_seconds = (
+        matcher_interval_seconds + matcher_grace_seconds
+    )
+    matcher_stale_after_seconds = (
+        matcher_interval_seconds * 2 + matcher_grace_seconds
+    )
+
+    if raw_age_seconds is None:
         return {
-            "level": "fresh",
-            "label": "Fresh",
-            "message": "Live matched quote data is current.",
-            "age_seconds": age_seconds,
+            "level": "delayed",
+            "label": "No Raw Data",
+            "message": "Raw VNX quotes have not been collected yet.",
+            "age_seconds": matched_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": None,
             "market_is_open": True,
         }
 
-    if age_seconds <= stale_after_seconds:
+    if raw_age_seconds > raw_stale_after_seconds:
+        return {
+            "level": "stale",
+            "label": "Raw Data Stale",
+            "message": "Raw VNX quote collection is stale during market hours.",
+            "age_seconds": raw_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": raw_age_seconds,
+            "market_is_open": True,
+        }
+
+    if raw_age_seconds > raw_warning_after_seconds:
         return {
             "level": "delayed",
-            "label": "Delayed",
-            "message": "Matched quote data is falling behind.",
-            "age_seconds": age_seconds,
+            "label": "Raw Data Delayed",
+            "message": "Raw VNX quote collection is falling behind.",
+            "age_seconds": raw_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": raw_age_seconds,
+            "market_is_open": True,
+        }
+
+    if matched_age_seconds is None:
+        return {
+            "level": "delayed",
+            "label": "Matcher Pending",
+            "message": "Raw data is live, but matched analysis has not run yet.",
+            "age_seconds": None,
+            "matched_age_seconds": None,
+            "raw_age_seconds": raw_age_seconds,
+            "market_is_open": True,
+        }
+
+    if matched_age_seconds <= matcher_on_schedule_after_seconds:
+        return {
+            "level": "fresh",
+            "label": "On Schedule",
+            "message": "Raw data is live and matched analysis is within the matcher schedule.",
+            "age_seconds": matched_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": raw_age_seconds,
+            "market_is_open": True,
+        }
+
+    if matched_age_seconds <= matcher_stale_after_seconds:
+        return {
+            "level": "delayed",
+            "label": "Matcher Delayed",
+            "message": "Raw data is live, but matched analysis missed its expected schedule.",
+            "age_seconds": matched_age_seconds,
+            "matched_age_seconds": matched_age_seconds,
+            "raw_age_seconds": raw_age_seconds,
             "market_is_open": True,
         }
 
     return {
         "level": "stale",
-        "label": "Stale",
-        "message": "Matched quote data is stale during market hours.",
-        "age_seconds": age_seconds,
+        "label": "Matcher Stale",
+        "message": "Raw data is live, but matched analysis is stale during market hours.",
+        "age_seconds": matched_age_seconds,
+        "matched_age_seconds": matched_age_seconds,
+        "raw_age_seconds": raw_age_seconds,
         "market_is_open": True,
     }
 

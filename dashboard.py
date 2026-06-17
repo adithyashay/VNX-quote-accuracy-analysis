@@ -3,6 +3,7 @@ from datetime import timedelta
 import pandas as pd
 import streamlit as st
 
+from src.settings import get_int_env
 from src.dashboard.queries import (
     get_available_date_range,
     get_symbols,
@@ -52,6 +53,18 @@ from src.dashboard.styles import (
     apply_custom_styles,
     render_header,
     render_methodology_note,
+)
+
+
+COLLECTION_INTERVAL_SECONDS = get_int_env(
+    "COLLECTION_INTERVAL_SECONDS",
+    60,
+    min_value=1,
+)
+MATCHER_INTERVAL_SECONDS = get_int_env(
+    "MATCHER_INTERVAL_SECONDS",
+    300,
+    min_value=1,
 )
 
 
@@ -119,11 +132,18 @@ def render_pipeline_health(health_summary):
     events_df = health_summary.get("events", pd.DataFrame())
 
     latest_matched_time = freshness.get("latest_matched_quote_time")
-    freshness_status = calculate_freshness_status(latest_matched_time)
+    latest_vnx_time = freshness.get("latest_vnx_quote_time")
+    freshness_status = calculate_freshness_status(
+        latest_matched_time=latest_matched_time,
+        latest_raw_time=latest_vnx_time,
+        collection_interval_seconds=COLLECTION_INTERVAL_SECONDS,
+        matcher_interval_seconds=MATCHER_INTERVAL_SECONDS,
+    )
 
     status_message = (
         f"{freshness_status['label']}: {freshness_status['message']} "
-        f"Data age: {format_age(freshness_status['age_seconds'])}."
+        f"Matched age: {format_age(freshness_status['matched_age_seconds'])}. "
+        f"Raw VNX age: {format_age(freshness_status['raw_age_seconds'])}."
     )
 
     if freshness_status["level"] == "fresh":
@@ -143,7 +163,7 @@ def render_pipeline_health(health_summary):
     )
     col2.metric(
         "Latest VNX Quote",
-        format_timestamp(freshness.get("latest_vnx_quote_time")),
+        format_timestamp(latest_vnx_time),
     )
     col3.metric(
         "Matched Rows Today",
@@ -160,7 +180,12 @@ def render_pipeline_health(health_summary):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Pipeline Health")
     st.sidebar.write(f"Freshness: {freshness_status['label']}")
-    st.sidebar.write(f"Data age: {format_age(freshness_status['age_seconds'])}")
+    st.sidebar.write(
+        f"Matched age: {format_age(freshness_status['matched_age_seconds'])}"
+    )
+    st.sidebar.write(
+        f"Raw VNX age: {format_age(freshness_status['raw_age_seconds'])}"
+    )
 
     if collector_event:
         st.sidebar.write(f"Collector: {collector_event['status']}")
