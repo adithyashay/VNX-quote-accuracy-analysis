@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.settings import get_int_env
+from src.dashboard.auth import require_dashboard_login
 from src.dashboard.queries import (
     get_available_date_range,
     get_symbols,
@@ -699,6 +700,9 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
 def main():
     apply_page_config()
     apply_custom_styles()
+
+    require_dashboard_login()
+
     render_header()
 
     health_summary = cached_pipeline_health()

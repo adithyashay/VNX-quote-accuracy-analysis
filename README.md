@@ -119,3 +119,9 @@ HEALTH_HEARTBEAT_INTERVAL_SECONDS=300
 ```
 
 For cloud workers, `SAVE_CSV_BACKUP=false` is recommended because PostgreSQL is the system of record.
+
+Deployment files are included:
+
+- `render.yaml` defines the Render Postgres database, Streamlit web service, and background worker.
+- `scripts.bootstrap_production_database` creates tables and imports the S&P 500 symbol universe.
+- See `docs/deployment.md` for the deploy steps and required secrets.
