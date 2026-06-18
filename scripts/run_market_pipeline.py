@@ -1,3 +1,4 @@
+import os
 import time
 
 from config.symbols import ACTIVE_SYMBOLS
@@ -84,6 +85,8 @@ RETENTION_INTERVAL_SECONDS = get_int_env(
     3600,
     min_value=60,
 )
+
+MATCHED_REPLICA_DATABASE_URL = os.getenv("MATCHED_REPLICA_DATABASE_URL")
 
 
 def write_pipeline_event(component, status, message=None, details=None):
@@ -259,6 +262,41 @@ def run_matcher():
         }
 
     db_inserted_matches = insert_matched_quote_rows(matched_df)
+    replica_inserted_matches = 0
+    replica_error = None
+
+    if MATCHED_REPLICA_DATABASE_URL and not matched_df.empty:
+        try:
+            replica_inserted_matches = insert_matched_quote_rows(
+                matched_df,
+                database_url=MATCHED_REPLICA_DATABASE_URL,
+            )
+            record_pipeline_event(
+                "laptop_matched_replica",
+                "success",
+                "Matched rows synced from laptop worker.",
+                {
+                    "matched_rows_synced": replica_inserted_matches,
+                    "local_matched_rows_processed": db_inserted_matches,
+                },
+                database_url=MATCHED_REPLICA_DATABASE_URL,
+            )
+        except Exception as error:
+            replica_error = str(error)
+            print("Matched replica sync error:", replica_error)
+
+            try:
+                record_pipeline_event(
+                    "laptop_matched_replica",
+                    "error",
+                    replica_error,
+                    {
+                        "local_matched_rows_processed": db_inserted_matches,
+                    },
+                    database_url=MATCHED_REPLICA_DATABASE_URL,
+                )
+            except Exception as health_error:
+                print("Replica health event failed:", health_error)
 
     total_matches = len(matched_df)
 
@@ -280,6 +318,7 @@ def run_matcher():
     print("Symbols matched:", symbol_count)
     print("CSV new rows saved:", save_status["saved_rows"])
     print("PostgreSQL matched rows processed:", db_inserted_matches)
+    print("Replica matched rows processed:", replica_inserted_matches)
     print("Save status:", save_status["reason"])
 
     return {
@@ -289,6 +328,8 @@ def run_matcher():
         "symbol_count": symbol_count,
         "csv_saved_rows": save_status["saved_rows"],
         "db_inserted_matches": db_inserted_matches,
+        "replica_inserted_matches": replica_inserted_matches,
+        "replica_error": replica_error,
         "save_reason": save_status["reason"],
     }
 
@@ -345,6 +386,7 @@ def main():
             "raw_retention_days": RAW_RETENTION_DAYS,
             "matched_retention_days": MATCHED_RETENTION_DAYS,
             "retention_interval_seconds": RETENTION_INTERVAL_SECONDS,
+            "matched_replica_enabled": bool(MATCHED_REPLICA_DATABASE_URL),
         },
     )
 
@@ -360,6 +402,7 @@ def main():
         print("CSV Backup Enabled:", SAVE_CSV_BACKUP)
         print("Health Heartbeat Seconds:", HEALTH_HEARTBEAT_INTERVAL_SECONDS)
         print("Raw Retention Days:", RAW_RETENTION_DAYS)
+        print("Matched Replica Enabled:", bool(MATCHED_REPLICA_DATABASE_URL))
 
         if market_is_open:
             print("Market is open. Running batch collection...")

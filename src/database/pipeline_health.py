@@ -28,8 +28,8 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_health_status_time
 """
 
 
-def create_pipeline_health_table():
-    with get_connection() as connection:
+def create_pipeline_health_table(database_url=None):
+    with get_connection(database_url=database_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(CREATE_PIPELINE_HEALTH_EVENTS_TABLE)
             cursor.execute(CREATE_PIPELINE_HEALTH_EVENTS_INDEXES)
@@ -43,6 +43,7 @@ def record_pipeline_event(
     message=None,
     details=None,
     event_time=None,
+    database_url=None,
 ):
     if not component:
         raise ValueError("component is required")
@@ -67,7 +68,7 @@ def record_pipeline_event(
         VALUES (%s, %s, %s, %s, %s);
     """
 
-    with get_connection() as connection:
+    with get_connection(database_url=database_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(CREATE_PIPELINE_HEALTH_EVENTS_TABLE)
             cursor.execute(CREATE_PIPELINE_HEALTH_EVENTS_INDEXES)

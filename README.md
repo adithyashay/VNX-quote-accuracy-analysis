@@ -58,7 +58,8 @@ The health check writes `reports/database_health_report.md` and checks row count
 
 `scripts.run_market_pipeline` is the live raw pipeline. It collects raw VNX and
 delayed quotes every 60 seconds and runs the PostgreSQL matcher every 5 minutes.
-Use `SAVE_CSV_BACKUP=false` and `RAW_RETENTION_DAYS=1` for a cloud database.
+Use `MATCHED_REPLICA_DATABASE_URL` when the laptop should keep raw local data
+while syncing matched rows only to Neon for Streamlit.
 
 ## Dashboard
 

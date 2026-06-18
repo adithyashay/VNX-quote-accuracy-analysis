@@ -25,6 +25,29 @@ MATCHED_RETENTION_DAYS=0
 RETENTION_INTERVAL_SECONDS=3600
 ```
 
+## Vacation Setup: Local Raw, Neon Matched
+
+Use this setup when the laptop is the market-hours worker:
+
+```text
+DATABASE_URL=postgresql://postgres:local_password@localhost:5432/vnx_quote_accuracy
+MATCHED_REPLICA_DATABASE_URL=postgresql://neon_user:neon_password@neon_host/neondb?sslmode=require
+SAVE_CSV_BACKUP=false
+RAW_RETENTION_DAYS=0
+MATCHED_RETENTION_DAYS=0
+```
+
+With this setup:
+
+- local PostgreSQL stores raw VNX quotes
+- local PostgreSQL stores raw delayed quotes
+- local PostgreSQL stores matched quote analysis
+- Neon stores matched quote analysis only
+- Streamlit Cloud reads Neon and updates for your boss
+
+Set `RAW_RETENTION_DAYS=0` if you want to keep all raw data on the laptop while
+you are away. Make sure the laptop has enough disk space.
+
 ## Command
 
 ```powershell
@@ -40,7 +63,8 @@ The live worker does this loop:
 4. Insert raw rows into PostgreSQL.
 5. Every 5 minutes, match unmatched VNX rows from PostgreSQL raw tables.
 6. Insert matched analysis rows into PostgreSQL.
-7. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
+7. If MATCHED_REPLICA_DATABASE_URL is set, sync matched rows to Neon.
+8. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
 ```
 
 ## Storage Policy

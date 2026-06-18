@@ -159,7 +159,7 @@ def insert_delayed_quote_rows(rows):
     return len(cleaned_rows)
 
 
-def insert_matched_quote_rows(rows):
+def insert_matched_quote_rows(rows, database_url=None):
     """
     Insert matched quote analysis rows into PostgreSQL.
 
@@ -230,7 +230,7 @@ def insert_matched_quote_rows(rows):
             absolute_percentage_error = EXCLUDED.absolute_percentage_error;
     """
 
-    with get_connection() as connection:
+    with get_connection(database_url=database_url) as connection:
         with connection.cursor() as cursor:
             execute_values(cursor, query, cleaned_rows)
         connection.commit()
