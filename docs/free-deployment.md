@@ -10,6 +10,10 @@ Use a fully free stack:
 
 The scheduled pipeline stores matched rows only. It does not store raw VNX or delayed quote history in the cloud database.
 
+If the product needs raw VNX and delayed quotes every 60 seconds with matching
+every 5 minutes, use the live raw worker in `docs/live-raw-pipeline.md`.
+GitHub-hosted scheduled workflows are not the right worker for that mode.
+
 ## Required Accounts
 
 - GitHub account with this private repo
@@ -38,6 +42,10 @@ The workflow is:
 ```
 
 It runs every 15 minutes from `13:00` to `21:59` UTC on weekdays. The Python code also checks Eastern market hours, so extra scheduled runs outside market hours exit without collecting.
+
+GitHub schedules can be delayed or skipped under high load, so this workflow is
+best for the free matched-only deployment, not second-by-second or minute-level
+market data collection.
 
 ## Streamlit Community Cloud Setup
 

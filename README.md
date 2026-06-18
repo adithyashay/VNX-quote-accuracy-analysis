@@ -50,10 +50,15 @@ Avoid creating a second environment named `venv`; keeping only `.venv` prevents 
 .\.venv\Scripts\python.exe -m scripts.setup_database
 .\.venv\Scripts\python.exe -m scripts.bootstrap_production_database
 .\.venv\Scripts\python.exe -m scripts.run_scheduled_matched_pipeline
+.\.venv\Scripts\python.exe -m scripts.run_market_pipeline
 .\.venv\Scripts\python.exe -m scripts.run_database_health_check
 ```
 
 The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, match-validity consistency, and latest pipeline health events.
+
+`scripts.run_market_pipeline` is the live raw pipeline. It collects raw VNX and
+delayed quotes every 60 seconds and runs the PostgreSQL matcher every 5 minutes.
+Use `SAVE_CSV_BACKUP=false` and `RAW_RETENTION_DAYS=1` for a cloud database.
 
 ## Dashboard
 
@@ -96,4 +101,5 @@ Deployment files:
 - `.github/workflows/scheduled-matched-pipeline.yml` runs the matched-only pipeline on GitHub Actions.
 - `scripts.run_scheduled_matched_pipeline` collects current quotes, matches in memory, and stores matched rows only.
 - `docs/free-deployment.md` explains the Streamlit Community Cloud + Neon + GitHub Actions setup.
+- `docs/live-raw-pipeline.md` explains the raw 60-second worker mode.
 - `docs/historical-data-migration.md` explains how to move local matched quote history into Neon Postgres.

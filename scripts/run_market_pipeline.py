@@ -7,7 +7,6 @@ from src.batch_collectors import (
     collect_delayed_quotes_batch
 )
 from src.matcher import (
-    match_all_vnx_quotes_to_delayed,
     normalize_matched_dataframe,
     save_matched_results,
 )
@@ -17,6 +16,8 @@ from src.database.writer import (
     insert_matched_quote_rows,
 )
 from src.database.pipeline_health import record_pipeline_event
+from src.database.postgres_matcher import match_unmatched_postgres_quotes_to_delayed
+from src.database.retention import prune_quote_history
 from src.market_hours import is_market_open_now
 
 
@@ -52,6 +53,36 @@ HEALTH_HEARTBEAT_INTERVAL_SECONDS = get_int_env(
     "HEALTH_HEARTBEAT_INTERVAL_SECONDS",
     300,
     min_value=1,
+)
+
+MATCHER_LOOKBACK_HOURS = get_int_env(
+    "MATCHER_LOOKBACK_HOURS",
+    24,
+    min_value=1,
+)
+
+MATCHER_DELAYED_PADDING_SECONDS = get_int_env(
+    "MATCHER_DELAYED_PADDING_SECONDS",
+    900,
+    min_value=1,
+)
+
+RAW_RETENTION_DAYS = get_int_env(
+    "RAW_RETENTION_DAYS",
+    1,
+    min_value=0,
+)
+
+MATCHED_RETENTION_DAYS = get_int_env(
+    "MATCHED_RETENTION_DAYS",
+    0,
+    min_value=0,
+)
+
+RETENTION_INTERVAL_SECONDS = get_int_env(
+    "RETENTION_INTERVAL_SECONDS",
+    3600,
+    min_value=60,
 )
 
 
@@ -204,14 +235,13 @@ def collect_all_symbols_in_batches():
 
 def run_matcher():
     """
-    Run VNX-driven matcher and save processed matched results.
-
-    Matched results are saved to CSV backup and inserted into PostgreSQL.
+    Run PostgreSQL-backed VNX-driven matcher.
     """
 
-    matched_df = match_all_vnx_quotes_to_delayed(
+    matched_df = match_unmatched_postgres_quotes_to_delayed(
         valid_window_seconds=MATCHER_VALID_WINDOW_SECONDS,
-        incremental=True
+        lookback_hours=MATCHER_LOOKBACK_HOURS,
+        delayed_padding_seconds=MATCHER_DELAYED_PADDING_SECONDS,
     )
 
     print(f"Matched rows before cleanup: {len(matched_df)}")
@@ -220,7 +250,14 @@ def run_matcher():
 
     print(f"Matched rows after cleanup: {len(matched_df)}")
 
-    save_status = save_matched_results(matched_df)
+    if SAVE_CSV_BACKUP:
+        save_status = save_matched_results(matched_df)
+    else:
+        save_status = {
+            "saved_rows": 0,
+            "reason": "CSV backup disabled",
+        }
+
     db_inserted_matches = insert_matched_quote_rows(matched_df)
 
     total_matches = len(matched_df)
@@ -256,6 +293,28 @@ def run_matcher():
     }
 
 
+def run_retention_cleanup():
+    """
+    Prune old quote history so live raw collection does not fill the database.
+    """
+
+    summary = prune_quote_history(
+        raw_retention_days=RAW_RETENTION_DAYS,
+        matched_retention_days=MATCHED_RETENTION_DAYS,
+    )
+
+    print()
+    print("Retention Cleanup Summary")
+    print("-------------------------")
+    print("Raw retention days:", summary["raw_retention_days"])
+    print("Matched retention days:", summary["matched_retention_days"])
+    print("VNX raw rows deleted:", summary["vnx_rows_deleted"])
+    print("Delayed raw rows deleted:", summary["delayed_rows_deleted"])
+    print("Matched rows deleted:", summary["matched_rows_deleted"])
+
+    return summary
+
+
 # -----------------------------
 # Main pipeline loop
 # -----------------------------
@@ -267,6 +326,7 @@ def main():
 
     last_matcher_run_time = 0
     last_health_heartbeat_time = 0
+    last_retention_run_time = 0
 
     write_pipeline_event(
         "market_pipeline",
@@ -280,6 +340,11 @@ def main():
             "matcher_valid_window_seconds": MATCHER_VALID_WINDOW_SECONDS,
             "save_csv_backup": SAVE_CSV_BACKUP,
             "health_heartbeat_interval_seconds": HEALTH_HEARTBEAT_INTERVAL_SECONDS,
+            "matcher_lookback_hours": MATCHER_LOOKBACK_HOURS,
+            "matcher_delayed_padding_seconds": MATCHER_DELAYED_PADDING_SECONDS,
+            "raw_retention_days": RAW_RETENTION_DAYS,
+            "matched_retention_days": MATCHED_RETENTION_DAYS,
+            "retention_interval_seconds": RETENTION_INTERVAL_SECONDS,
         },
     )
 
@@ -294,6 +359,7 @@ def main():
         print("Batch Size:", BATCH_SIZE)
         print("CSV Backup Enabled:", SAVE_CSV_BACKUP)
         print("Health Heartbeat Seconds:", HEALTH_HEARTBEAT_INTERVAL_SECONDS)
+        print("Raw Retention Days:", RAW_RETENTION_DAYS)
 
         if market_is_open:
             print("Market is open. Running batch collection...")
@@ -374,6 +440,31 @@ def main():
                     "collection_errors": collection_summary["error_count"],
                 },
             )
+
+            should_run_retention = (
+                current_timestamp - last_retention_run_time
+            ) >= RETENTION_INTERVAL_SECONDS
+
+            if should_run_retention:
+                try:
+                    retention_summary = run_retention_cleanup()
+
+                    write_pipeline_event(
+                        "retention",
+                        "success",
+                        "Retention cleanup completed.",
+                        retention_summary,
+                    )
+
+                    last_retention_run_time = current_timestamp
+
+                except Exception as error:
+                    print("Retention cleanup error:", error)
+                    write_pipeline_event(
+                        "retention",
+                        "error",
+                        str(error),
+                    )
 
             last_health_heartbeat_time = current_timestamp
 
