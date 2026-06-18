@@ -308,7 +308,7 @@ This report is a raw data coverage report. It measures data availability and cov
 
 ## Notes
 
-CSV files are still maintained as backup/export files, but PostgreSQL is now being used as the main analysis database for larger S&P 500 quote history.
+PostgreSQL is the main analysis database. CSV import/export scripts are kept only as recovery and migration utilities.
 """
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

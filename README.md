@@ -66,6 +66,7 @@ Before market open:
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.setup_database
 .\.venv\Scripts\python.exe -m scripts.bootstrap_production_database
+.\.venv\Scripts\python.exe -m scripts.check_laptop_worker_setup
 .\.venv\Scripts\python.exe -m scripts.run_market_pipeline
 ```
 

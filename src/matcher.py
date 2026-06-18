@@ -2,8 +2,6 @@ import os
 import pandas as pd
 
 
-VNX_HISTORY_FILE = "data/raw/vnx_quote_history.csv"
-DELAYED_HISTORY_FILE = "data/raw/delayed_quote_history.csv"
 MATCHED_ANALYSIS_FILE = "data/processed/matched_quote_analysis.csv"
 
 
@@ -63,100 +61,6 @@ def normalize_matched_dataframe(matched_df):
         subset=["symbol", "vnx_time"],
         keep="first"
     )
-
-
-def load_raw_quote_data():
-    """
-    Load raw VNX quote history and delayed quote history.
-    Parse mixed timestamp formats safely.
-    """
-
-    vnx_df = pd.read_csv(VNX_HISTORY_FILE, low_memory=False)
-    delayed_df = pd.read_csv(DELAYED_HISTORY_FILE, low_memory=False)
-
-    vnx_df["timestamp_readable"] = normalize_datetime_series(
-        vnx_df["timestamp_readable"]
-    )
-
-    delayed_df["delayed_time_readable"] = normalize_datetime_series(
-        delayed_df["delayed_time_readable"]
-    )
-
-    vnx_df = vnx_df.dropna(subset=["timestamp_readable"])
-    delayed_df = delayed_df.dropna(subset=["delayed_time_readable"])
-
-    return vnx_df, delayed_df
-
-
-def load_existing_matched_data():
-    """
-    Load existing matched analysis if it exists.
-    """
-
-    if os.path.exists(MATCHED_ANALYSIS_FILE) and os.path.getsize(MATCHED_ANALYSIS_FILE) > 0:
-        existing_df = pd.read_csv(MATCHED_ANALYSIS_FILE)
-
-        existing_df["vnx_time"] = normalize_datetime_series(
-            existing_df["vnx_time"]
-        )
-
-        existing_df["delayed_time"] = normalize_datetime_series(
-            existing_df["delayed_time"]
-        )
-
-        existing_df = existing_df.dropna(subset=["vnx_time", "delayed_time"])
-
-        return existing_df
-
-    return pd.DataFrame()
-
-
-def create_vnx_match_key(df, symbol_column="symbol", time_column="timestamp_readable"):
-    """
-    Create a unique key for each VNX quote row.
-
-    This key tells us whether a VNX quote has already been matched.
-    """
-
-    return (
-        df[symbol_column].astype(str).str.strip()
-        + "|"
-        + normalize_timestamp_key(df[time_column])
-    )
-
-
-def filter_unmatched_vnx_rows(vnx_df, existing_matched_df):
-    """
-    Keep only VNX rows that have not already been matched.
-    """
-
-    if existing_matched_df.empty:
-        return vnx_df
-
-    vnx_df = vnx_df.copy()
-    existing_matched_df = existing_matched_df.copy()
-
-    vnx_df["match_key"] = create_vnx_match_key(
-        vnx_df,
-        symbol_column="symbol",
-        time_column="timestamp_readable"
-    )
-
-    existing_matched_df["match_key"] = create_vnx_match_key(
-        existing_matched_df,
-        symbol_column="symbol",
-        time_column="vnx_time"
-    )
-
-    existing_keys = set(existing_matched_df["match_key"])
-
-    unmatched_vnx_df = vnx_df[
-        ~vnx_df["match_key"].isin(existing_keys)
-    ].copy()
-
-    unmatched_vnx_df = unmatched_vnx_df.drop(columns=["match_key"])
-
-    return unmatched_vnx_df
 
 
 def calculate_error_columns(matched_df):
@@ -269,35 +173,6 @@ def match_vnx_rows_to_delayed(vnx_df, delayed_df, valid_window_seconds=60):
             "absolute_percentage_error"
         ]
     ]
-
-    return matched_df
-
-
-def match_all_vnx_quotes_to_delayed(valid_window_seconds=60, incremental=True):
-    """
-    Main matcher function.
-
-    If incremental=True:
-        only match VNX rows that have not already been matched.
-
-    If incremental=False:
-        rebuild matches from all raw VNX rows.
-    """
-
-    vnx_df, delayed_df = load_raw_quote_data()
-
-    if vnx_df.empty or delayed_df.empty:
-        return pd.DataFrame()
-
-    if incremental:
-        existing_matched_df = load_existing_matched_data()
-        vnx_df = filter_unmatched_vnx_rows(vnx_df, existing_matched_df)
-
-    matched_df = match_vnx_rows_to_delayed(
-        vnx_df=vnx_df,
-        delayed_df=delayed_df,
-        valid_window_seconds=valid_window_seconds
-    )
 
     return matched_df
 

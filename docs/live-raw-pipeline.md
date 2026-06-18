@@ -48,6 +48,14 @@ you are away. Make sure the laptop has enough disk space.
 
 ## Command
 
+Check setup first:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.check_laptop_worker_setup
+```
+
+Then start the market worker:
+
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.run_market_pipeline
 ```
