@@ -2,32 +2,35 @@
 
 ## Project Overview
 
-This project measures how accurate VNX quote prices are compared to delayed/reference quote prices.
+This project measures VNX quote accuracy against delayed/reference quote prices.
 
-The free cloud deployment stores matched analysis only. Raw VNX and delayed quotes are collected, matched in memory, and discarded after the matched rows are saved. This keeps the database small enough for a free Postgres tier.
+The current production plan is laptop-worker first:
 
 ```text
 ViaNexus APIs
     ->
-GitHub Actions scheduled pipeline
+Laptop market pipeline during trading hours
     ->
-In-memory VNX vs delayed quote matching
+Local PostgreSQL raw VNX + raw delayed + matched analysis
     ->
-PostgreSQL matched_quote_analysis + health events
+Neon PostgreSQL matched analysis only
     ->
-Streamlit dashboard
+Streamlit Cloud dashboard
 ```
 
-## Working Flow
+This keeps complete raw evidence on the laptop for later analysis while keeping
+the cloud database small enough for dashboard access.
+
+## Data Flow
 
 ```text
-1. Load S&P 500 symbol universe
-2. Collect VNX quotes in batches
-3. Collect delayed/reference quotes in batches
-4. Match VNX and delayed quotes in memory
-5. Save matched quote analysis into PostgreSQL
-6. Record scheduled pipeline health events
-7. Display stats and data freshness in Streamlit
+1. Collect raw VNX quotes every 60 seconds.
+2. Collect raw delayed/reference quotes every 60 seconds.
+3. Store both raw feeds in local PostgreSQL.
+4. Run the PostgreSQL matcher every 5 minutes.
+5. Store matched analysis in local PostgreSQL.
+6. Sync matched analysis only to Neon PostgreSQL.
+7. Streamlit Cloud reads Neon so the dashboard is available from anywhere.
 ```
 
 ## Local Setup
@@ -40,67 +43,60 @@ py -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Fill in `.env` with the ViaNexus API token and PostgreSQL connection settings.
+Fill in `.env` with:
 
-Avoid creating a second environment named `venv`; keeping only `.venv` prevents Streamlit from launching with missing packages.
+```text
+VIANEXUS_API_TOKEN=...
+DATABASE_URL=postgresql://postgres:local_password@localhost:5432/vnx_quote_accuracy
+MATCHED_REPLICA_DATABASE_URL=postgresql://neon_user:neon_password@neon_host/neondb?sslmode=require
+COLLECTION_INTERVAL_SECONDS=60
+MATCHER_INTERVAL_SECONDS=300
+SAVE_CSV_BACKUP=false
+RAW_RETENTION_DAYS=0
+MATCHED_RETENTION_DAYS=0
+```
 
-## Local Commands
+`DATABASE_URL` is the local PostgreSQL database. `MATCHED_REPLICA_DATABASE_URL`
+is Neon and receives matched rows only.
+
+## Daily Run
+
+Before market open:
 
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.setup_database
 .\.venv\Scripts\python.exe -m scripts.bootstrap_production_database
-.\.venv\Scripts\python.exe -m scripts.run_scheduled_matched_pipeline
 .\.venv\Scripts\python.exe -m scripts.run_market_pipeline
-.\.venv\Scripts\python.exe -m scripts.run_database_health_check
 ```
 
-The health check writes `reports/database_health_report.md` and checks row counts, duplicate key groups, symbol-universe drift, timestamp ranges, match-validity consistency, and latest pipeline health events.
-
-`scripts.run_market_pipeline` is the live raw pipeline. It collects raw VNX and
-delayed quotes every 60 seconds and runs the PostgreSQL matcher every 5 minutes.
-Use `MATCHED_REPLICA_DATABASE_URL` when the laptop should keep raw local data
-while syncing matched rows only to Neon for Streamlit.
+Keep the laptop plugged in, connected to Wi-Fi, and configured not to sleep.
 
 ## Dashboard
+
+Local dashboard:
 
 ```powershell
 .\.venv\Scripts\streamlit.exe run dashboard.py
 ```
 
-The dashboard reads from PostgreSQL. The free deployment uses `matched_quote_analysis` as the source of truth.
-
-## Free Deployment
-
-Use this fully free stack:
+Team dashboard:
 
 ```text
-GitHub Actions
-    -> scheduled every 15 minutes during the broad market-hours window
-    -> runs matched-only collection/matching
-
-Neon Free Postgres
-    -> stores symbols, matched quote analysis, and health events
-
-Streamlit Community Cloud
-    -> hosts dashboard for approved viewers
+Streamlit Cloud -> reads Neon DATABASE_URL
 ```
 
-Useful scheduled pipeline settings:
+The Streamlit Cloud app should use Neon as `DATABASE_URL`, because Neon contains
+the matched analysis synced from the laptop worker.
 
-```text
-BATCH_SIZE=100
-COLLECTION_INTERVAL_SECONDS=900
-MATCHER_INTERVAL_SECONDS=900
-MATCHER_VALID_WINDOW_SECONDS=60
-SAVE_CSV_BACKUP=false
-HEALTH_HEARTBEAT_INTERVAL_SECONDS=900
-MATCHED_RETENTION_DAYS=0
+## Useful Commands
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.run_database_health_check
+.\.venv\Scripts\python.exe -m scripts.export_postgres_snapshot
+.\.venv\Scripts\python.exe -m scripts.import_postgres_snapshot ".migration\postgres_snapshot_YYYYMMDD_HHMMSS"
 ```
 
-Deployment files:
+## Docs
 
-- `.github/workflows/scheduled-matched-pipeline.yml` runs the matched-only pipeline on GitHub Actions.
-- `scripts.run_scheduled_matched_pipeline` collects current quotes, matches in memory, and stores matched rows only.
-- `docs/free-deployment.md` explains the Streamlit Community Cloud + Neon + GitHub Actions setup.
-- `docs/live-raw-pipeline.md` explains the raw 60-second worker mode.
-- `docs/historical-data-migration.md` explains how to move local matched quote history into Neon Postgres.
+- `docs/live-raw-pipeline.md`: laptop-worker production runbook.
+- `docs/historical-data-migration.md`: move matched local history into Neon.

@@ -177,9 +177,9 @@ def render_pipeline_health(health_summary):
 
     collector_event = get_latest_component_event(events_df, "collector")
     matcher_event = get_latest_component_event(events_df, "matcher")
-    scheduled_event = get_latest_component_event(
+    replica_event = get_latest_component_event(
         events_df,
-        "scheduled_matched_pipeline",
+        "laptop_matched_replica",
     )
 
     st.sidebar.markdown("---")
@@ -192,8 +192,8 @@ def render_pipeline_health(health_summary):
         f"VNX age: {format_age(freshness_status['raw_age_seconds'])}"
     )
 
-    if scheduled_event:
-        st.sidebar.write(f"Scheduled pipeline: {scheduled_event['status']}")
+    if replica_event:
+        st.sidebar.write(f"Laptop sync: {replica_event['status']}")
 
     if collector_event:
         st.sidebar.write(f"Collector: {collector_event['status']}")

@@ -5,9 +5,7 @@
 Use this mode when the product needs raw VNX quotes and raw delayed/reference
 quotes collected every 60 seconds, with the matcher running every 5 minutes.
 
-This mode needs an always-on worker during market hours. It should not run as a
-normal GitHub-hosted scheduled workflow, because GitHub schedules have a minimum
-5-minute interval and can be delayed or dropped during high load.
+This mode needs the laptop to stay awake during market hours.
 
 ## Recommended Settings
 
@@ -20,12 +18,12 @@ MATCHER_LOOKBACK_HOURS=24
 MATCHER_DELAYED_PADDING_SECONDS=900
 SAVE_CSV_BACKUP=false
 HEALTH_HEARTBEAT_INTERVAL_SECONDS=300
-RAW_RETENTION_DAYS=1
+RAW_RETENTION_DAYS=0
 MATCHED_RETENTION_DAYS=0
 RETENTION_INTERVAL_SECONDS=3600
 ```
 
-## Vacation Setup: Local Raw, Neon Matched
+## Laptop Setup: Local Raw, Neon Matched
 
 Use this setup when the laptop is the market-hours worker:
 
@@ -69,27 +67,23 @@ The live worker does this loop:
 
 ## Storage Policy
 
-Keep matched history long-term and raw history short-term.
+For the vacation data-capture period, keep matched history and raw history.
 
-Recommended free-tier posture:
+Recommended vacation posture:
 
-- `RAW_RETENTION_DAYS=1`
+- `RAW_RETENTION_DAYS=0`
 - `MATCHED_RETENTION_DAYS=0`
 
-That keeps one day of raw quote evidence for debugging while preserving the
-matched quote analysis used by the dashboard.
+That keeps all raw quote evidence locally while preserving matched quote
+analysis locally and in Neon.
 
-## Deployment Reality
+## Operating Notes
 
-Streamlit Community Cloud can host the dashboard, and Neon can store the data.
-The missing piece is the always-on worker.
+- Keep the laptop plugged in.
+- Disable sleep while plugged in.
+- Keep Wi-Fi connected.
+- Leave the PowerShell window running.
+- Streamlit Cloud should use Neon as `DATABASE_URL`.
 
-Options:
-
-- Office or laptop worker: free, but that machine must stay on during market hours.
-- Self-hosted GitHub Actions runner: free GitHub orchestration, but still needs an
-  always-on machine.
-- Paid always-on service: most reliable, but not completely free.
-
-GitHub-hosted Actions are still useful for the matched-only free deployment, but
-they are not a reliable 60-second market data worker.
+If the laptop is off, asleep, or disconnected, collection stops. Existing local
+and Neon data remain safe.

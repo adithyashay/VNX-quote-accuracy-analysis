@@ -1,6 +1,6 @@
 # Historical Data Migration
 
-Use this after Neon creates the free production PostgreSQL database.
+Use this when Neon needs a backfill of matched history from local PostgreSQL.
 
 The migration is two steps:
 
@@ -23,14 +23,13 @@ This uses your local `.env` PostgreSQL settings and creates a folder like:
 .migration/postgres_snapshot_20260617_130000
 ```
 
-The free deployment snapshot includes:
+The cloud dashboard snapshot includes:
 
 - `sp500_symbols`
 - `matched_quote_analysis`
 
-It intentionally does not migrate raw quote tables or local `pipeline_health_events`.
-Raw quote tables are expensive in free storage, and local health events describe
-your laptop rather than the cloud pipeline.
+It intentionally does not migrate raw quote tables. Raw VNX and delayed quote
+history should stay local on the laptop for detailed analysis.
 
 ## 2. Import Into Neon Postgres
 
@@ -53,9 +52,10 @@ Recommended order:
 
 1. Create the Neon database.
 2. Confirm the dashboard opens and login works.
-3. Disable the GitHub Actions schedule briefly if it is already collecting.
+3. Stop the laptop worker briefly if it is actively syncing matched rows.
 4. Run the historical import.
-5. Re-enable the GitHub Actions schedule.
+5. Start the laptop worker again.
 6. Refresh the dashboard and confirm historical date ranges are visible.
 
-The import can technically run while scheduled jobs are active, but pausing the workflow avoids unnecessary contention during the first migration.
+The import can technically run while the worker is active, but pausing it avoids
+unnecessary contention during the first migration.
