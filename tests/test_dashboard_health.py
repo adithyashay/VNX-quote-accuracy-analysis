@@ -51,7 +51,7 @@ class DashboardHealthTests(unittest.TestCase):
         )
 
         self.assertEqual(status["level"], "delayed")
-        self.assertEqual(status["label"], "Source Data Delayed")
+        self.assertEqual(status["label"], "Source Timestamp Delayed")
         self.assertEqual(status["raw_age_seconds"], 180)
 
     def test_freshness_status_flags_raw_collection_stale_first(self):
@@ -62,7 +62,7 @@ class DashboardHealthTests(unittest.TestCase):
         )
 
         self.assertEqual(status["level"], "stale")
-        self.assertEqual(status["label"], "Source Data Stale")
+        self.assertEqual(status["label"], "Source Timestamp Stale")
         self.assertEqual(status["raw_age_seconds"], 360)
 
     def test_freshness_status_respects_closed_market(self):

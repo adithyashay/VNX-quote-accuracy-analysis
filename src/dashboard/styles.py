@@ -65,8 +65,8 @@ def render_header():
     st.title("VNX Quote Accuracy Dashboard")
 
     st.caption(
-        "PostgreSQL-backed dashboard for S&P 500 VNX quote accuracy, "
-        "timestamp matching, symbol-level analysis, and matched data coverage."
+        "PostgreSQL-backed dashboard for S&P 500 VNX quote cents difference, "
+        "timestamp matching, observation counts, and matched data coverage."
     )
 
 
@@ -83,12 +83,19 @@ def render_methodology_note():
 
             **Date filtering:** Date, week, and month filters are based on `vnx_time`.
 
-            **Error calculation:**
+            **Difference calculation:**
 
             ```text
-            percentage_error = (vnx_price - delayed_price) / delayed_price * 100
-            absolute_percentage_error = abs(percentage_error)
+            difference_cents = (vnx_price - delayed_price) * 100
+            absolute_difference_cents = abs(difference_cents)
+            normalized_difference_bps = absolute_percentage_error * 100
             ```
+
+            Basis points are shown as the normalized view so high-priced and low-priced symbols can be compared more fairly.
+
+            **Observation counts:** Time-bucket counts are grouped by `vnx_time`, so they represent matched quote snapshots collected inside each interval.
+
+            **Pipeline timestamps:** Quote timestamps come from the source feed. Worker, matcher, and sync timestamps show when the automation last ran.
 
             **Timestamp window:** A match is treated as valid when the timestamp gap is within the selected window.
             """

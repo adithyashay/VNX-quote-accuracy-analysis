@@ -19,9 +19,14 @@ from src.dashboard.metrics import (
     calculate_symbol_metrics,
     calculate_ticker_metrics,
     calculate_error_threshold_summary,
+    calculate_price_band_summary,
+    calculate_observation_interval_summary,
     calculate_data_coverage_metrics,
     prepare_display_table,
     format_percent,
+    format_cents,
+    format_signed_cents,
+    format_bps,
     format_number,
     format_float,
 )
@@ -36,6 +41,8 @@ from src.dashboard.charts import (
     create_observation_count_chart,
     create_error_threshold_chart,
     create_timestamp_window_chart,
+    create_observation_interval_chart,
+    create_price_band_chart,
     create_window_observation_chart,
 )
 from src.dashboard.exports import (
@@ -131,9 +138,16 @@ def cached_pipeline_health():
 def render_pipeline_health(health_summary):
     freshness = health_summary.get("freshness", {})
     events_df = health_summary.get("events", pd.DataFrame())
+    collector_event = get_latest_component_event(events_df, "collector")
+    matcher_event = get_latest_component_event(events_df, "matcher")
+    replica_event = get_latest_component_event(
+        events_df,
+        "laptop_matched_replica",
+    )
 
     latest_matched_time = freshness.get("latest_matched_quote_time")
     latest_vnx_time = freshness.get("latest_vnx_quote_time")
+    latest_delayed_time = freshness.get("latest_delayed_quote_time")
     freshness_status = calculate_freshness_status(
         latest_matched_time=latest_matched_time,
         latest_raw_time=latest_vnx_time,
@@ -175,11 +189,29 @@ def render_pipeline_health(health_summary):
         format_number(freshness.get("vnx_rows_today")),
     )
 
-    collector_event = get_latest_component_event(events_df, "collector")
-    matcher_event = get_latest_component_event(events_df, "matcher")
-    replica_event = get_latest_component_event(
-        events_df,
-        "laptop_matched_replica",
+    col5, col6, col7, col8 = st.columns(4)
+
+    col5.metric(
+        "Latest Delayed Quote",
+        format_timestamp(latest_delayed_time),
+    )
+    col6.metric(
+        "Latest Collector Run",
+        format_timestamp(
+            collector_event["event_time"] if collector_event else None
+        ),
+    )
+    col7.metric(
+        "Latest Matcher Run",
+        format_timestamp(
+            matcher_event["event_time"] if matcher_event else None
+        ),
+    )
+    col8.metric(
+        "Latest Cloud Sync",
+        format_timestamp(
+            replica_event["event_time"] if replica_event else None
+        ),
     )
 
     st.sidebar.markdown("---")
@@ -227,7 +259,7 @@ def render_metric_row(overall_metrics):
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
-        "Valid Observations",
+        "Matched Observations",
         format_number(overall_metrics["total_observations"]),
     )
 
@@ -237,35 +269,35 @@ def render_metric_row(overall_metrics):
     )
 
     col3.metric(
-        "Avg Price Error",
-        format_percent(overall_metrics["avg_price_error_pct"]),
+        "Median Abs Diff",
+        format_cents(overall_metrics["median_price_error_cents"]),
     )
 
     col4.metric(
-        "Median Price Error",
-        format_percent(overall_metrics["median_price_error_pct"]),
+        "P95 Abs Diff",
+        format_cents(overall_metrics["p95_price_error_cents"]),
     )
 
     col5, col6, col7, col8 = st.columns(4)
 
     col5.metric(
-        "Max Price Error",
-        format_percent(overall_metrics["max_price_error_pct"]),
+        "Avg Abs Diff",
+        format_cents(overall_metrics["avg_price_error_cents"]),
     )
 
     col6.metric(
-        "Directional Error",
-        format_percent(overall_metrics["avg_directional_error_pct"]),
+        "P99 Abs Diff",
+        format_cents(overall_metrics["p99_price_error_cents"]),
     )
 
     col7.metric(
-        "Avg Time Gap",
-        f"{format_float(overall_metrics['avg_time_gap_seconds'], 2)} sec",
+        "Median Normalized Diff",
+        format_bps(overall_metrics["median_price_error_bps"]),
     )
 
     col8.metric(
-        "VNX Time Range",
-        "Available",
+        "Avg Time Gap",
+        f"{format_float(overall_metrics['avg_time_gap_seconds'], 2)} sec",
     )
 
 
@@ -371,6 +403,19 @@ def get_sidebar_filters(symbols_df, sectors, min_date, max_date):
     )
     valid_only = timestamp_window_option != "All"
 
+    observation_interval_options = {
+        "1 minute": 1,
+        "5 minutes": 5,
+        "15 minutes": 15,
+        "1 hour": 60,
+    }
+
+    observation_interval_label = st.sidebar.selectbox(
+        "Observation count interval",
+        options=list(observation_interval_options.keys()),
+        index=1,
+    )
+
     st.sidebar.subheader("Table Display")
 
     top_n = st.sidebar.slider(
@@ -391,6 +436,10 @@ def get_sidebar_filters(symbols_df, sectors, min_date, max_date):
         "top_n": top_n,
         "valid_only": valid_only,
         "timestamp_window_option": timestamp_window_option,
+        "observation_interval_label": observation_interval_label,
+        "observation_interval_minutes": observation_interval_options[
+            observation_interval_label
+        ],
     }
 
 
@@ -403,12 +452,72 @@ def render_executive_overview(df, symbol_stats, threshold_df, filters):
 
     st.markdown("---")
 
-    st.subheader("Error and Accuracy Analysis")
+    st.subheader("Cents Difference Analysis")
 
     st.plotly_chart(
         create_error_threshold_chart(threshold_df),
         use_container_width=True,
     )
+
+    st.subheader("Observation Counts")
+
+    observation_interval_df = calculate_observation_interval_summary(
+        df,
+        filters["observation_interval_minutes"],
+    )
+
+    col_interval, col_symbol = st.columns(2)
+
+    with col_interval:
+        st.plotly_chart(
+            create_observation_interval_chart(
+                observation_interval_df,
+                filters["observation_interval_label"],
+            ),
+            use_container_width=True,
+        )
+
+    with col_symbol:
+        st.plotly_chart(
+            create_observation_count_chart(symbol_stats, filters["top_n"]),
+            use_container_width=True,
+        )
+
+    display_interval_df = prepare_display_table(observation_interval_df)
+
+    for column in ["interval_start", "interval_end"]:
+        if column in display_interval_df.columns:
+            display_interval_df[column] = pd.to_datetime(
+                display_interval_df[column],
+                errors="coerce",
+            ).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    st.dataframe(
+        display_interval_df,
+        use_container_width=True,
+        height=260,
+    )
+
+    st.subheader("Price Band Normalization")
+
+    price_band_df = calculate_price_band_summary(df)
+
+    col_price_chart, col_price_table = st.columns(2)
+
+    with col_price_chart:
+        st.plotly_chart(
+            create_price_band_chart(price_band_df),
+            use_container_width=True,
+        )
+
+    with col_price_table:
+        st.dataframe(
+            prepare_display_table(price_band_df),
+            use_container_width=True,
+            height=450,
+        )
+
+    st.subheader("Symbol Difference Ranking")
 
     col1, col2 = st.columns(2)
 
@@ -579,6 +688,22 @@ def render_timestamp_window_analysis(filters):
 
     display_df = window_df.copy()
 
+    signed_cents_columns = [
+        "avg_directional_error_cents",
+    ]
+
+    cents_columns = [
+        "avg_price_error_cents",
+        "median_price_error_cents",
+        "max_price_error_cents",
+    ]
+
+    for column in signed_cents_columns:
+        display_df[column] = display_df[column].apply(format_signed_cents)
+
+    for column in cents_columns:
+        display_df[column] = display_df[column].apply(format_cents)
+
     percent_columns = [
         "avg_price_error_pct",
         "median_price_error_pct",
@@ -687,10 +812,40 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
 
     with col2:
         st.download_button(
-            label="Download Error Threshold Summary",
+            label="Download Cents Threshold Summary",
             data=dataframe_to_csv_bytes(clean_export_dataframe(threshold_df)),
             file_name=build_export_filename(
-                "error_threshold_summary",
+                "cents_threshold_summary",
+                filters["start_date"],
+                filters["end_date"],
+            ),
+            mime="text/csv",
+        )
+
+        observation_interval_df = calculate_observation_interval_summary(
+            df,
+            filters["observation_interval_minutes"],
+        )
+        price_band_df = calculate_price_band_summary(df)
+
+        st.download_button(
+            label="Download Observation Counts",
+            data=dataframe_to_csv_bytes(
+                clean_export_dataframe(observation_interval_df)
+            ),
+            file_name=build_export_filename(
+                "observation_counts",
+                filters["start_date"],
+                filters["end_date"],
+            ),
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download Price Band Summary",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(price_band_df)),
+            file_name=build_export_filename(
+                "price_band_summary",
                 filters["start_date"],
                 filters["end_date"],
             ),

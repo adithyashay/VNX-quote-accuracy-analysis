@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.market_hours import EASTERN_TIMEZONE
+from src.dashboard.metrics import add_cents_columns
 from src.settings import get_sqlalchemy_database_url
 
 
@@ -147,6 +148,7 @@ def load_matched_data(
     if not df.empty:
         df["vnx_time"] = pd.to_datetime(df["vnx_time"], errors="coerce")
         df["delayed_time"] = pd.to_datetime(df["delayed_time"], errors="coerce")
+        df = add_cents_columns(df)
 
     return df
 
@@ -242,6 +244,10 @@ def load_timestamp_window_summary(
                     "timestamp_window_seconds": window,
                     "observations": 0,
                     "symbols_analyzed": 0,
+                    "avg_price_error_cents": None,
+                    "median_price_error_cents": None,
+                    "max_price_error_cents": None,
+                    "avg_directional_error_cents": None,
                     "avg_price_error_pct": None,
                     "median_price_error_pct": None,
                     "max_price_error_pct": None,
@@ -256,6 +262,18 @@ def load_timestamp_window_summary(
                 "timestamp_window_seconds": window,
                 "observations": len(df),
                 "symbols_analyzed": df["symbol"].nunique(),
+                "avg_price_error_cents": df[
+                    "absolute_price_difference_cents"
+                ].mean(),
+                "median_price_error_cents": df[
+                    "absolute_price_difference_cents"
+                ].median(),
+                "max_price_error_cents": df[
+                    "absolute_price_difference_cents"
+                ].max(),
+                "avg_directional_error_cents": df[
+                    "price_difference_cents"
+                ].mean(),
                 "avg_price_error_pct": df["absolute_percentage_error"].mean(),
                 "median_price_error_pct": df["absolute_percentage_error"].median(),
                 "max_price_error_pct": df["absolute_percentage_error"].max(),

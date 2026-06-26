@@ -89,6 +89,17 @@ Streamlit Cloud -> reads Neon DATABASE_URL
 The Streamlit Cloud app should use Neon as `DATABASE_URL`, because Neon contains
 the matched analysis synced from the laptop worker.
 
+The dashboard shows cents difference as the primary accuracy metric:
+
+```text
+difference_cents = (vnx_price - delayed_price) * 100
+normalized_difference_bps = absolute_percentage_error * 100
+```
+
+It also includes basis-point normalization, price-band summaries, and matched
+observation counts by ticker and by selected time interval, so the team can see
+how many collected snapshots support each view.
+
 ## Useful Commands
 
 ```powershell

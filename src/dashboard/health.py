@@ -138,7 +138,7 @@ def calculate_freshness_status(
         return {
             "level": "delayed",
             "label": "No Source Data",
-            "message": "Source VNX quotes have not been collected yet.",
+            "message": "No VNX quote timestamps are available yet.",
             "age_seconds": matched_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": None,
@@ -148,8 +148,8 @@ def calculate_freshness_status(
     if raw_age_seconds > raw_stale_after_seconds:
         return {
             "level": "stale",
-            "label": "Source Data Stale",
-            "message": "Source VNX quote collection is stale during market hours.",
+            "label": "Source Timestamp Stale",
+            "message": "The latest VNX quote timestamp is stale during market hours.",
             "age_seconds": raw_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,
@@ -159,8 +159,8 @@ def calculate_freshness_status(
     if raw_age_seconds > raw_warning_after_seconds:
         return {
             "level": "delayed",
-            "label": "Source Data Delayed",
-            "message": "Source VNX quote collection is falling behind.",
+            "label": "Source Timestamp Delayed",
+            "message": "The latest VNX quote timestamp is falling behind.",
             "age_seconds": raw_age_seconds,
             "matched_age_seconds": matched_age_seconds,
             "raw_age_seconds": raw_age_seconds,

@@ -32,6 +32,8 @@ def clean_export_dataframe(df):
         "latest_vnx_time",
         "earliest_delayed_time",
         "latest_delayed_time",
+        "interval_start",
+        "interval_end",
     ]
 
     for column in datetime_columns:
