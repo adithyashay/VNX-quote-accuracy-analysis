@@ -97,6 +97,6 @@ def render_methodology_note():
 
             **Pipeline timestamps:** Quote timestamps come from the source feed. Worker, matcher, and sync timestamps show when the automation last ran.
 
-            **Timestamp window:** A match is treated as valid when the timestamp gap is within the selected window.
+            **Timestamp window:** A match is treated as valid when the timestamp gap is within the selected window. Wide-gap matches are excluded from dashboard accuracy metrics because they mix market movement with quote error.
             """
         )

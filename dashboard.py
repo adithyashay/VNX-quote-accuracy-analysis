@@ -388,20 +388,16 @@ def get_sidebar_filters(symbols_df, sectors, min_date, max_date):
 
     timestamp_window_option = st.sidebar.selectbox(
         "Timestamp window",
-        options=["All", 1, 5, 15, 30, 60],
-        index=5,
+        options=[1, 5, 15, 30, 60],
+        index=4,
         help=(
             "Select the maximum allowed timestamp gap between VNX and delayed/reference quotes. "
-            "'All' includes every matched observation regardless of timestamp gap."
+            "Wide-gap matches are excluded because they mix market price movement with quote error."
         ),
     )
 
-    max_time_gap_seconds = (
-        None
-        if timestamp_window_option == "All"
-        else timestamp_window_option
-    )
-    valid_only = timestamp_window_option != "All"
+    max_time_gap_seconds = timestamp_window_option
+    valid_only = True
 
     observation_interval_options = {
         "1 minute": 1,
@@ -906,12 +902,8 @@ def main():
     threshold_df = calculate_error_threshold_summary(df)
 
     window_text = (
-        "All timestamp gaps, including invalid/wide-gap matches"
-        if filters["timestamp_window_option"] == "All"
-        else (
-            "valid matches with timestamp window "
-            f"<= {filters['max_time_gap_seconds']} seconds"
-        )
+        "valid matches with timestamp window "
+        f"<= {filters['max_time_gap_seconds']} seconds"
     )
 
     st.info(
