@@ -2,7 +2,11 @@ import unittest
 
 import pandas as pd
 
-from src.matcher import normalize_matched_dataframe, normalize_timestamp_key
+from src.matcher import (
+    match_vnx_rows_to_delayed,
+    normalize_matched_dataframe,
+    normalize_timestamp_key,
+)
 
 
 class MatcherNormalizationTests(unittest.TestCase):
@@ -40,6 +44,38 @@ class MatcherNormalizationTests(unittest.TestCase):
 
         self.assertEqual(len(normalized_df), 1)
         self.assertEqual(normalized_df.iloc[0]["time_gap_seconds"], 13.456)
+
+    def test_matcher_marks_wide_timestamp_gap_invalid(self):
+        vnx_df = pd.DataFrame(
+            [
+                {
+                    "symbol": "AAPL",
+                    "vnx_price": 100.0,
+                    "timestamp_readable": pd.Timestamp("2026-06-29 10:00:00"),
+                }
+            ]
+        )
+        delayed_df = pd.DataFrame(
+            [
+                {
+                    "symbol": "AAPL",
+                    "delayed_price": 101.0,
+                    "delayed_time_readable": pd.Timestamp(
+                        "2026-06-29 10:02:00"
+                    ),
+                }
+            ]
+        )
+
+        matched_df = match_vnx_rows_to_delayed(
+            vnx_df,
+            delayed_df,
+            valid_window_seconds=60,
+        )
+
+        self.assertEqual(len(matched_df), 1)
+        self.assertEqual(matched_df.iloc[0]["time_gap_seconds"], 120)
+        self.assertFalse(bool(matched_df.iloc[0]["valid_match"]))
 
 
 if __name__ == "__main__":

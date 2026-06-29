@@ -82,6 +82,16 @@ the evidence needed to prove whether the API returned all S&P 500 symbols every
 60 seconds.
 ```
 
+The coverage summary sent to Neon is intentionally lightweight. Streamlit Cloud
+uses it to show latest requested/returned/missing counts by feed, problem
+symbols by reason, expected versus actual polling cycles, and repeated missing
+symbols. Full per-symbol audit rows stay in local PostgreSQL unless the storage
+policy changes.
+
+Accuracy metrics remain timestamp-windowed. The dashboard uses cents thresholds
+of 20, 50, and 70 cents, plus normalized basis-point percentiles, so price
+accuracy is not mixed with market movement from wide timestamp gaps.
+
 ## Storage Policy
 
 For the vacation data-capture period, keep matched history and raw history.

@@ -89,6 +89,19 @@ Streamlit Cloud -> reads Neon DATABASE_URL
 The Streamlit Cloud app should use Neon as `DATABASE_URL`, because Neon contains
 the matched analysis synced from the laptop worker.
 
+The dashboard is organized around two product questions:
+
+```text
+Coverage Monitor: Did VNX and delayed/reference APIs return every expected
+S&P 500 symbol on each polling cycle?
+
+Accuracy Monitor: For valid timestamp-matched rows, how far is VNX from the
+reference price?
+```
+
+Coverage is the first priority. If the API does not return every expected
+symbol reliably, the accuracy metrics are incomplete.
+
 The dashboard shows cents difference as the primary accuracy metric:
 
 ```text
@@ -99,6 +112,16 @@ normalized_difference_bps = absolute_percentage_error * 100
 It also includes basis-point normalization, price-band summaries, and matched
 observation counts by ticker and by selected time interval, so the team can see
 how many collected snapshots support each view.
+
+Accuracy thresholds use the product-facing cents bands:
+
+```text
+20 cents / 50 cents / 70 cents
+```
+
+P50/P90/P95/P99 are shown in both cents and basis points. Cents answer the
+business question Pedro asked for, while basis points keep high-priced and
+low-priced symbols comparable.
 
 The pipeline also records snapshot coverage for every polling cycle:
 
@@ -112,6 +135,10 @@ missing or malformed symbols by feed
 This is separate from the raw quote tables. Raw quote tables are deduplicated by
 source timestamp, while snapshot coverage proves whether each 60-second API poll
 returned every requested symbol.
+
+The Streamlit coverage view also derives polling cadence from recent collector
+health events. It shows expected cycles, actual cycles, missing cycles, max
+cycle gap, latest feed-level coverage, and repeatedly missing/problem symbols.
 
 ## Useful Commands
 

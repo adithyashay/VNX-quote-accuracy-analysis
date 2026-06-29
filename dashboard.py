@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 
 import pandas as pd
@@ -16,6 +15,11 @@ from src.dashboard.queries import (
     load_timestamp_window_summary,
     load_collection_coverage_history,
 )
+from src.dashboard.coverage import (
+    build_collection_coverage_tables,
+    calculate_collection_cycle_metrics,
+    calculate_repeated_problem_symbols,
+)
 from src.dashboard.metrics import (
     calculate_overall_metrics,
     calculate_symbol_metrics,
@@ -29,6 +33,7 @@ from src.dashboard.metrics import (
     format_cents,
     format_signed_cents,
     format_bps,
+    format_signed_bps,
     format_number,
     format_float,
 )
@@ -139,75 +144,74 @@ def cached_pipeline_health():
 
 @st.cache_data(ttl=60)
 def cached_collection_coverage_history():
-    return load_collection_coverage_history()
+    return load_collection_coverage_history(limit=500)
 
 
-def normalize_event_details(details):
-    if isinstance(details, dict):
-        return details
+def load_collection_coverage_tables():
+    history_df = cached_collection_coverage_history()
+    coverage_df, problem_df = build_collection_coverage_tables(history_df)
+    cycle_metrics = calculate_collection_cycle_metrics(
+        coverage_df,
+        expected_interval_seconds=COLLECTION_INTERVAL_SECONDS,
+    )
+    repeated_problem_df = calculate_repeated_problem_symbols(problem_df)
 
-    if isinstance(details, str):
-        try:
-            parsed_details = json.loads(details)
-        except json.JSONDecodeError:
-            return {}
-
-        if isinstance(parsed_details, dict):
-            return parsed_details
-
-    return {}
+    return coverage_df, problem_df, cycle_metrics, repeated_problem_df
 
 
-def build_collection_coverage_tables(history_df):
-    coverage_rows = []
-    problem_rows = []
+def calculate_latest_coverage_totals(coverage_df):
+    if coverage_df.empty:
+        return {
+            "latest_event_time": None,
+            "requested_total": 0,
+            "returned_total": 0,
+            "missing_total": 0,
+            "problem_total": 0,
+        }
 
-    if history_df.empty:
-        return pd.DataFrame(), pd.DataFrame()
+    latest_event_time = coverage_df["event_time"].max()
+    latest_rows = coverage_df[coverage_df["event_time"] == latest_event_time]
 
-    for _, event in history_df.iterrows():
-        details = normalize_event_details(event.get("details"))
-        snapshot_coverage = details.get("snapshot_coverage", {})
+    return {
+        "latest_event_time": latest_event_time,
+        "requested_total": latest_rows["requested_count"].sum(),
+        "returned_total": latest_rows["returned_count"].sum(),
+        "missing_total": latest_rows["missing_count"].sum(),
+        "problem_total": latest_rows["problem_count"].sum(),
+    }
 
-        for source in ["vnx", "delayed"]:
-            source_summary = snapshot_coverage.get(source)
 
-            if not source_summary:
-                continue
+def render_latest_coverage_summary():
+    coverage_df, _, cycle_metrics, _ = load_collection_coverage_tables()
+    coverage_totals = calculate_latest_coverage_totals(coverage_df)
 
-            coverage_rows.append(
-                {
-                    "event_time": event["event_time"],
-                    "source": source.upper(),
-                    "status": event["status"],
-                    "requested_count": source_summary.get("requested_count"),
-                    "returned_count": source_summary.get("returned_count"),
-                    "ok_count": source_summary.get("ok_count"),
-                    "problem_count": source_summary.get("problem_count"),
-                    "missing_count": source_summary.get("missing_count"),
-                    "source_timestamp_min": source_summary.get(
-                        "source_timestamp_min"
-                    ),
-                    "source_timestamp_max": source_summary.get(
-                        "source_timestamp_max"
-                    ),
-                }
-            )
+    if coverage_df.empty:
+        st.info("No recent collector snapshot coverage summaries are available yet.")
+        return
 
-            symbols_by_status = source_summary.get("symbols_by_status", {})
+    st.subheader("Latest Coverage Monitor")
 
-            for problem_status, symbols in symbols_by_status.items():
-                for symbol in symbols:
-                    problem_rows.append(
-                        {
-                            "event_time": event["event_time"],
-                            "source": source.upper(),
-                            "problem": problem_status,
-                            "symbol": symbol,
-                        }
-                    )
+    col1, col2, col3, col4 = st.columns(4)
 
-    return pd.DataFrame(coverage_rows), pd.DataFrame(problem_rows)
+    col1.metric(
+        "Latest Coverage Time",
+        format_timestamp(coverage_totals["latest_event_time"]),
+    )
+    col2.metric(
+        "Returned / Requested",
+        (
+            f"{format_number(coverage_totals['returned_total'])} / "
+            f"{format_number(coverage_totals['requested_total'])}"
+        ),
+    )
+    col3.metric(
+        "Missing Snapshots",
+        format_number(coverage_totals["missing_total"]),
+    )
+    col4.metric(
+        "Missing Cycles",
+        format_number(cycle_metrics["missing_cycles"]),
+    )
 
 
 def render_pipeline_health(health_summary):
@@ -344,20 +348,20 @@ def render_metric_row(overall_metrics):
     )
 
     col3.metric(
-        "Median Abs Diff",
+        "P50 Abs Diff",
         format_cents(overall_metrics["median_price_error_cents"]),
     )
 
     col4.metric(
-        "P95 Abs Diff",
-        format_cents(overall_metrics["p95_price_error_cents"]),
+        "P90 Abs Diff",
+        format_cents(overall_metrics["p90_price_error_cents"]),
     )
 
     col5, col6, col7, col8 = st.columns(4)
 
     col5.metric(
-        "Avg Abs Diff",
-        format_cents(overall_metrics["avg_price_error_cents"]),
+        "P95 Abs Diff",
+        format_cents(overall_metrics["p95_price_error_cents"]),
     )
 
     col6.metric(
@@ -371,6 +375,28 @@ def render_metric_row(overall_metrics):
     )
 
     col8.metric(
+        "P95 Normalized Diff",
+        format_bps(overall_metrics["p95_price_error_bps"]),
+    )
+
+    col9, col10, col11, col12 = st.columns(4)
+
+    col9.metric(
+        "Avg Abs Diff",
+        format_cents(overall_metrics["avg_price_error_cents"]),
+    )
+
+    col10.metric(
+        "Avg Directional Bias",
+        format_signed_cents(overall_metrics["avg_directional_error_cents"]),
+    )
+
+    col11.metric(
+        "Avg Normalized Bias",
+        format_signed_bps(overall_metrics["avg_directional_error_bps"]),
+    )
+
+    col12.metric(
         "Avg Time Gap",
         f"{format_float(overall_metrics['avg_time_gap_seconds'], 2)} sec",
     )
@@ -515,7 +541,13 @@ def get_sidebar_filters(symbols_df, sectors, min_date, max_date):
 
 
 def render_executive_overview(df, symbol_stats, threshold_df, filters):
-    st.header("Executive Overview")
+    st.header("Executive Summary")
+
+    render_latest_coverage_summary()
+
+    st.markdown("---")
+
+    st.subheader("Accuracy Monitor")
 
     overall_metrics = calculate_overall_metrics(df)
 
@@ -611,10 +643,10 @@ def render_executive_overview(df, symbol_stats, threshold_df, filters):
 
 
 def render_symbol_level_accuracy(symbol_stats, filters):
-    st.header("Symbol-Level Accuracy")
+    st.header("Accuracy Monitor")
 
     st.caption(
-        "This table shows S&P 500 symbol-level VNX quote accuracy for the selected filters."
+        "Symbol-level VNX quote accuracy using only valid timestamp-windowed matches."
     )
 
     display_df = prepare_display_table(symbol_stats)
@@ -726,7 +758,7 @@ def render_ticker_deep_dive(df, symbols_df, filters):
 
 
 def render_timestamp_window_analysis(filters):
-    st.header("Timestamp Window Analysis")
+    st.header("Timestamp Windows")
 
     window_df = cached_window_summary(
         filters["start_date"],
@@ -740,7 +772,8 @@ def render_timestamp_window_analysis(filters):
         return
 
     st.caption(
-        "This section shows how observation count and accuracy change as the timestamp window changes."
+        "Use this to validate the matching window. The dashboard accuracy views "
+        "use only rows inside the selected timestamp window."
     )
 
     col1, col2 = st.columns(2)
@@ -804,10 +837,14 @@ def render_timestamp_window_analysis(filters):
 
 
 def render_collection_snapshot_coverage():
-    st.subheader("Recent Snapshot Collection Coverage")
+    st.subheader("Snapshot Collection Coverage")
 
-    history_df = cached_collection_coverage_history()
-    coverage_df, problem_df = build_collection_coverage_tables(history_df)
+    (
+        coverage_df,
+        problem_df,
+        cycle_metrics,
+        repeated_problem_df,
+    ) = load_collection_coverage_tables()
 
     if coverage_df.empty:
         st.caption(
@@ -816,32 +853,78 @@ def render_collection_snapshot_coverage():
         )
         return
 
-    latest_event_time = coverage_df["event_time"].max()
+    coverage_totals = calculate_latest_coverage_totals(coverage_df)
+    latest_event_time = coverage_totals["latest_event_time"]
     latest_rows = coverage_df[coverage_df["event_time"] == latest_event_time]
 
     col1, col2, col3, col4 = st.columns(4)
 
-    requested_total = latest_rows["requested_count"].sum()
-    returned_total = latest_rows["returned_count"].sum()
-    problem_total = latest_rows["problem_count"].sum()
-    missing_total = latest_rows["missing_count"].sum()
-
     col1.metric("Latest Coverage Time", format_timestamp(latest_event_time))
-    col2.metric("Requested Snapshots", format_number(requested_total))
-    col3.metric("Returned Snapshots", format_number(returned_total))
-    col4.metric("Missing Snapshots", format_number(missing_total))
+    col2.metric(
+        "Requested Snapshots",
+        format_number(coverage_totals["requested_total"]),
+    )
+    col3.metric(
+        "Returned Snapshots",
+        format_number(coverage_totals["returned_total"]),
+    )
+    col4.metric(
+        "Missing Snapshots",
+        format_number(coverage_totals["missing_total"]),
+    )
 
-    if problem_total:
+    col5, col6, col7, col8 = st.columns(4)
+
+    col5.metric(
+        "Expected Cycles",
+        format_number(cycle_metrics["expected_cycles"]),
+    )
+    col6.metric(
+        "Actual Cycles",
+        format_number(cycle_metrics["actual_cycles"]),
+    )
+    col7.metric(
+        "Missing Cycles",
+        format_number(cycle_metrics["missing_cycles"]),
+    )
+    col8.metric(
+        "Max Cycle Gap",
+        (
+            f"{format_float(cycle_metrics['max_cycle_gap_seconds'], 0)} sec"
+            if cycle_metrics["max_cycle_gap_seconds"] is not None
+            else "N/A"
+        ),
+    )
+
+    if coverage_totals["problem_total"]:
         st.warning(
-            f"Latest collector cycle has {format_number(problem_total)} "
+            f"Latest collector cycle has {format_number(coverage_totals['problem_total'])} "
             "snapshot coverage problems."
         )
     else:
         st.success("Latest collector cycle returned all requested VNX and delayed snapshots.")
 
+    st.subheader("Latest Feed-Level Coverage")
+    latest_display_df = latest_rows.copy()
+
+    for column in ["event_time", "cycle_started_at", "source_timestamp_min", "source_timestamp_max"]:
+        if column in latest_display_df.columns:
+            latest_display_df[column] = pd.to_datetime(
+                latest_display_df[column],
+                errors="coerce",
+            ).apply(format_timestamp)
+
+    st.dataframe(
+        latest_display_df,
+        use_container_width=True,
+        height=150,
+    )
+
+    st.subheader("Recent Polling Cycle History")
+
     display_coverage_df = coverage_df.copy()
 
-    for column in ["event_time", "source_timestamp_min", "source_timestamp_max"]:
+    for column in ["event_time", "cycle_started_at", "source_timestamp_min", "source_timestamp_max"]:
         if column in display_coverage_df.columns:
             display_coverage_df[column] = pd.to_datetime(
                 display_coverage_df[column],
@@ -865,6 +948,22 @@ def render_collection_snapshot_coverage():
         st.caption("No missing or malformed symbols found in recent collector cycles.")
         return
 
+    st.subheader("Repeated Problem Symbols")
+
+    display_repeated_df = repeated_problem_df.copy()
+
+    if "latest_problem_time" in display_repeated_df.columns:
+        display_repeated_df["latest_problem_time"] = pd.to_datetime(
+            display_repeated_df["latest_problem_time"],
+            errors="coerce",
+        ).apply(format_timestamp)
+
+    st.dataframe(
+        display_repeated_df.head(100),
+        use_container_width=True,
+        height=300,
+    )
+
     st.subheader("Recent Problem Symbols")
     st.dataframe(
         problem_df.sort_values("event_time", ascending=False).head(500),
@@ -881,7 +980,7 @@ def render_collection_snapshot_coverage():
 
 
 def render_data_coverage():
-    st.header("Data Coverage")
+    st.header("Coverage Monitor")
 
     data_coverage_df = cached_data_coverage()
     coverage_metrics = calculate_data_coverage_metrics(data_coverage_df)
@@ -920,7 +1019,7 @@ def render_data_coverage():
 
     st.markdown("---")
 
-    st.subheader("Symbol-Level Data Coverage")
+    st.subheader("Matched/Raw Storage Coverage")
 
     st.dataframe(data_coverage_df, use_container_width=True, height=600)
 
@@ -936,6 +1035,12 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
     st.header("Downloads")
 
     st.write("Download the currently filtered datasets and summary tables.")
+    (
+        collection_coverage_df,
+        problem_symbols_df,
+        _,
+        repeated_problem_df,
+    ) = load_collection_coverage_tables()
 
     col1, col2 = st.columns(2)
 
@@ -1013,6 +1118,29 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
             mime="text/csv",
         )
 
+        st.download_button(
+            label="Download Snapshot Coverage History",
+            data=dataframe_to_csv_bytes(
+                clean_export_dataframe(collection_coverage_df)
+            ),
+            file_name="snapshot_collection_coverage.csv",
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download Problem Symbols",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(problem_symbols_df)),
+            file_name="snapshot_collection_problem_symbols.csv",
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download Repeated Problem Symbols",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(repeated_problem_df)),
+            file_name="snapshot_repeated_problem_symbols.csv",
+            mime="text/csv",
+        )
+
 
 def main():
     apply_page_config()
@@ -1069,11 +1197,11 @@ def main():
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         [
-            "Executive Overview",
-            "Symbol-Level Accuracy",
+            "Executive Summary",
+            "Coverage Monitor",
+            "Accuracy Monitor",
             "Ticker Deep Dive",
-            "Timestamp Window Analysis",
-            "Data Coverage",
+            "Timestamp Windows",
             "Downloads",
         ]
     )
@@ -1082,16 +1210,16 @@ def main():
         render_executive_overview(df, symbol_stats, threshold_df, filters)
 
     with tab2:
-        render_symbol_level_accuracy(symbol_stats, filters)
+        render_data_coverage()
 
     with tab3:
-        render_ticker_deep_dive(df, symbols_df, filters)
+        render_symbol_level_accuracy(symbol_stats, filters)
 
     with tab4:
-        render_timestamp_window_analysis(filters)
+        render_ticker_deep_dive(df, symbols_df, filters)
 
     with tab5:
-        render_data_coverage()
+        render_timestamp_window_analysis(filters)
 
     with tab6:
         render_downloads(df, symbol_stats, threshold_df, filters)

@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-CENTS_THRESHOLDS = [1, 5, 10, 20, 50, 70]
+CENTS_THRESHOLDS = [20, 50, 70]
 PRICE_BANDS = [
     (0, 50, "< $50"),
     (50, 100, "$50-$100"),
@@ -104,7 +104,9 @@ def calculate_overall_metrics(df):
             "avg_directional_error_cents": None,
             "avg_price_error_bps": None,
             "median_price_error_bps": None,
+            "p90_price_error_bps": None,
             "p95_price_error_bps": None,
+            "p99_price_error_bps": None,
             "avg_directional_error_bps": None,
             "avg_price_error_pct": None,
             "median_price_error_pct": None,
@@ -144,7 +146,9 @@ def calculate_overall_metrics(df):
         ),
         "avg_price_error_bps": safe_mean(df["absolute_error_bps"]),
         "median_price_error_bps": safe_median(df["absolute_error_bps"]),
+        "p90_price_error_bps": safe_quantile(df["absolute_error_bps"], 0.90),
         "p95_price_error_bps": safe_quantile(df["absolute_error_bps"], 0.95),
+        "p99_price_error_bps": safe_quantile(df["absolute_error_bps"], 0.99),
         "avg_directional_error_bps": safe_mean(df["directional_error_bps"]),
         "avg_price_error_pct": safe_mean(df["absolute_percentage_error"]),
         "median_price_error_pct": safe_median(df["absolute_percentage_error"]),
@@ -183,9 +187,17 @@ def calculate_symbol_metrics(df):
                 "absolute_price_difference_cents",
                 "max",
             ),
+            p90_price_error_cents=(
+                "absolute_price_difference_cents",
+                lambda series: series.quantile(0.90),
+            ),
             p95_price_error_cents=(
                 "absolute_price_difference_cents",
                 lambda series: series.quantile(0.95),
+            ),
+            p99_price_error_cents=(
+                "absolute_price_difference_cents",
+                lambda series: series.quantile(0.99),
             ),
             std_price_error_cents=(
                 "absolute_price_difference_cents",
@@ -195,9 +207,17 @@ def calculate_symbol_metrics(df):
             avg_price_error_bps=("absolute_error_bps", "mean"),
             median_price_error_bps=("absolute_error_bps", "median"),
             max_price_error_bps=("absolute_error_bps", "max"),
+            p90_price_error_bps=(
+                "absolute_error_bps",
+                lambda series: series.quantile(0.90),
+            ),
             p95_price_error_bps=(
                 "absolute_error_bps",
                 lambda series: series.quantile(0.95),
+            ),
+            p99_price_error_bps=(
+                "absolute_error_bps",
+                lambda series: series.quantile(0.99),
             ),
             avg_directional_error_bps=("directional_error_bps", "mean"),
             avg_price_error_pct=("absolute_percentage_error", "mean"),
@@ -535,7 +555,9 @@ def prepare_display_table(df):
         "avg_price_error_bps",
         "median_price_error_bps",
         "max_price_error_bps",
+        "p90_price_error_bps",
         "p95_price_error_bps",
+        "p99_price_error_bps",
         "absolute_error_bps",
     ]
 

@@ -112,10 +112,7 @@ def build_snapshot_audit_rows(
         missing_timestamp = source_timestamp is None
         missing_price = price is None
 
-        if missing_timestamp and missing_price:
-            status = "missing_timestamp_and_price"
-            reason = "API returned the symbol without a usable timestamp or price."
-        elif missing_timestamp:
+        if missing_timestamp:
             status = "missing_timestamp"
             reason = "API returned the symbol without a usable timestamp."
         elif missing_price:
@@ -186,7 +183,7 @@ def summarize_snapshot_audit_rows(audit_rows):
         requested_rows = [row for row in source_rows if row["requested"]]
         returned_rows = [row for row in requested_rows if row["returned"]]
         problem_rows = [
-            row for row in requested_rows
+            row for row in source_rows
             if row["status"] != "ok"
         ]
         source_timestamps = [

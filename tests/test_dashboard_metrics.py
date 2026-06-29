@@ -64,10 +64,14 @@ class DashboardMetricsTests(unittest.TestCase):
         self.assertEqual(metrics["symbols_analyzed"], 2)
         self.assertAlmostEqual(metrics["avg_price_error_cents"], 12.6666667)
         self.assertAlmostEqual(metrics["median_price_error_cents"], 10.0)
+        self.assertAlmostEqual(metrics["p90_price_error_cents"], 22.0)
+        self.assertAlmostEqual(metrics["p99_price_error_cents"], 24.7)
         self.assertAlmostEqual(metrics["max_price_error_cents"], 25.0)
         self.assertAlmostEqual(metrics["avg_directional_error_cents"], 10.6666667)
         self.assertAlmostEqual(metrics["median_price_error_bps"], 5.0)
+        self.assertAlmostEqual(metrics["p90_price_error_bps"], 10.6)
         self.assertAlmostEqual(metrics["p95_price_error_bps"], 11.3)
+        self.assertAlmostEqual(metrics["p99_price_error_bps"], 11.86)
 
     def test_symbol_metrics_sort_by_cents_difference(self):
         symbol_stats = calculate_symbol_metrics(self.df)
@@ -77,15 +81,19 @@ class DashboardMetricsTests(unittest.TestCase):
             symbol_stats.iloc[0]["avg_price_error_cents"],
             3.0,
         )
+        aapl_stats = symbol_stats[symbol_stats["symbol"] == "AAPL"].iloc[0]
+        self.assertAlmostEqual(aapl_stats["p90_price_error_cents"], 23.5)
+        self.assertAlmostEqual(aapl_stats["p99_price_error_cents"], 24.85)
 
     def test_cents_threshold_summary_counts_observations(self):
         threshold_df = calculate_error_threshold_summary(self.df)
 
         rows = threshold_df.set_index("threshold_cents")
 
-        self.assertEqual(rows.loc[10, "observations"], 2)
+        self.assertEqual(set(rows.index.tolist()), {20, 50, 70})
         self.assertEqual(rows.loc[20, "observations"], 2)
         self.assertEqual(rows.loc[50, "observations"], 3)
+        self.assertEqual(rows.loc[70, "observations"], 3)
 
     def test_observation_interval_summary_counts_time_buckets(self):
         interval_df = calculate_observation_interval_summary(
