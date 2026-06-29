@@ -34,6 +34,9 @@ def clean_export_dataframe(df):
         "latest_delayed_time",
         "interval_start",
         "interval_end",
+        "event_time",
+        "source_timestamp_min",
+        "source_timestamp_max",
     ]
 
     for column in datetime_columns:

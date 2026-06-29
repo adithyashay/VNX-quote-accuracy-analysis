@@ -67,10 +67,19 @@ The live worker does this loop:
 2. If market is open, collect raw VNX quotes for all active symbols.
 3. Collect raw delayed/reference quotes for all active symbols.
 4. Insert raw rows into PostgreSQL.
-5. Every 5 minutes, match unmatched VNX rows from PostgreSQL raw tables.
-6. Insert matched analysis rows into PostgreSQL.
-7. If MATCHED_REPLICA_DATABASE_URL is set, sync matched rows to Neon.
-8. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
+5. Record per-symbol snapshot coverage for each feed and polling cycle.
+6. Mirror lightweight collector coverage summaries to Neon for Streamlit Cloud.
+7. Every 5 minutes, match unmatched VNX rows from PostgreSQL raw tables.
+8. Insert matched analysis rows into PostgreSQL.
+9. If MATCHED_REPLICA_DATABASE_URL is set, sync matched rows to Neon.
+10. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
+
+Snapshot coverage is intentionally separate from raw quote storage. Raw quote
+tables are unique by source timestamp, so repeated stale API responses update
+the existing raw row instead of creating a new polling-attempt row. The
+`quote_snapshot_audit` table records every requested symbol per cycle, which is
+the evidence needed to prove whether the API returned all S&P 500 symbols every
+60 seconds.
 ```
 
 ## Storage Policy

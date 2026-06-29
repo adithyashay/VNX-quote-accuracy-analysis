@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 import pandas as pd
@@ -13,6 +14,7 @@ from src.dashboard.queries import (
     load_pipeline_health_summary,
     load_data_coverage,
     load_timestamp_window_summary,
+    load_collection_coverage_history,
 )
 from src.dashboard.metrics import (
     calculate_overall_metrics,
@@ -133,6 +135,79 @@ def cached_window_summary(
 @st.cache_data(ttl=60)
 def cached_pipeline_health():
     return load_pipeline_health_summary()
+
+
+@st.cache_data(ttl=60)
+def cached_collection_coverage_history():
+    return load_collection_coverage_history()
+
+
+def normalize_event_details(details):
+    if isinstance(details, dict):
+        return details
+
+    if isinstance(details, str):
+        try:
+            parsed_details = json.loads(details)
+        except json.JSONDecodeError:
+            return {}
+
+        if isinstance(parsed_details, dict):
+            return parsed_details
+
+    return {}
+
+
+def build_collection_coverage_tables(history_df):
+    coverage_rows = []
+    problem_rows = []
+
+    if history_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    for _, event in history_df.iterrows():
+        details = normalize_event_details(event.get("details"))
+        snapshot_coverage = details.get("snapshot_coverage", {})
+
+        for source in ["vnx", "delayed"]:
+            source_summary = snapshot_coverage.get(source)
+
+            if not source_summary:
+                continue
+
+            coverage_rows.append(
+                {
+                    "event_time": event["event_time"],
+                    "source": source.upper(),
+                    "status": event["status"],
+                    "requested_count": source_summary.get("requested_count"),
+                    "returned_count": source_summary.get("returned_count"),
+                    "ok_count": source_summary.get("ok_count"),
+                    "problem_count": source_summary.get("problem_count"),
+                    "missing_count": source_summary.get("missing_count"),
+                    "source_timestamp_min": source_summary.get(
+                        "source_timestamp_min"
+                    ),
+                    "source_timestamp_max": source_summary.get(
+                        "source_timestamp_max"
+                    ),
+                }
+            )
+
+            symbols_by_status = source_summary.get("symbols_by_status", {})
+
+            for problem_status, symbols in symbols_by_status.items():
+                for symbol in symbols:
+                    problem_rows.append(
+                        {
+                            "event_time": event["event_time"],
+                            "source": source.upper(),
+                            "problem": problem_status,
+                            "symbol": symbol,
+                        }
+                    )
+
+    return pd.DataFrame(coverage_rows), pd.DataFrame(problem_rows)
 
 
 def render_pipeline_health(health_summary):
@@ -728,6 +803,83 @@ def render_timestamp_window_analysis(filters):
     )
 
 
+def render_collection_snapshot_coverage():
+    st.subheader("Recent Snapshot Collection Coverage")
+
+    history_df = cached_collection_coverage_history()
+    coverage_df, problem_df = build_collection_coverage_tables(history_df)
+
+    if coverage_df.empty:
+        st.caption(
+            "No collector snapshot coverage summaries found yet. "
+            "Run the market pipeline after updating the database schema."
+        )
+        return
+
+    latest_event_time = coverage_df["event_time"].max()
+    latest_rows = coverage_df[coverage_df["event_time"] == latest_event_time]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    requested_total = latest_rows["requested_count"].sum()
+    returned_total = latest_rows["returned_count"].sum()
+    problem_total = latest_rows["problem_count"].sum()
+    missing_total = latest_rows["missing_count"].sum()
+
+    col1.metric("Latest Coverage Time", format_timestamp(latest_event_time))
+    col2.metric("Requested Snapshots", format_number(requested_total))
+    col3.metric("Returned Snapshots", format_number(returned_total))
+    col4.metric("Missing Snapshots", format_number(missing_total))
+
+    if problem_total:
+        st.warning(
+            f"Latest collector cycle has {format_number(problem_total)} "
+            "snapshot coverage problems."
+        )
+    else:
+        st.success("Latest collector cycle returned all requested VNX and delayed snapshots.")
+
+    display_coverage_df = coverage_df.copy()
+
+    for column in ["event_time", "source_timestamp_min", "source_timestamp_max"]:
+        if column in display_coverage_df.columns:
+            display_coverage_df[column] = pd.to_datetime(
+                display_coverage_df[column],
+                errors="coerce",
+            ).apply(format_timestamp)
+
+    st.dataframe(
+        display_coverage_df,
+        use_container_width=True,
+        height=300,
+    )
+
+    st.download_button(
+        label="Download Snapshot Coverage History CSV",
+        data=dataframe_to_csv_bytes(clean_export_dataframe(coverage_df)),
+        file_name="snapshot_collection_coverage.csv",
+        mime="text/csv",
+    )
+
+    if problem_df.empty:
+        st.caption("No missing or malformed symbols found in recent collector cycles.")
+        return
+
+    st.subheader("Recent Problem Symbols")
+    st.dataframe(
+        problem_df.sort_values("event_time", ascending=False).head(500),
+        use_container_width=True,
+        height=300,
+    )
+
+    st.download_button(
+        label="Download Problem Symbols CSV",
+        data=dataframe_to_csv_bytes(clean_export_dataframe(problem_df)),
+        file_name="snapshot_collection_problem_symbols.csv",
+        mime="text/csv",
+    )
+
+
 def render_data_coverage():
     st.header("Data Coverage")
 
@@ -761,6 +913,10 @@ def render_data_coverage():
         "Symbols with Raw Both",
         format_number(coverage_metrics["symbols_with_both"]),
     )
+
+    st.markdown("---")
+
+    render_collection_snapshot_coverage()
 
     st.markdown("---")
 

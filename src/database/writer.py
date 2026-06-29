@@ -53,6 +53,13 @@ def clean_bool(value):
     return None
 
 
+def clean_int(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return int(value)
+
+
 def insert_vnx_quote_rows(rows):
     """
     Insert raw VNX quote rows into PostgreSQL.
@@ -228,6 +235,83 @@ def insert_matched_quote_rows(rows, database_url=None):
             difference = EXCLUDED.difference,
             percentage_error = EXCLUDED.percentage_error,
             absolute_percentage_error = EXCLUDED.absolute_percentage_error;
+    """
+
+    with get_connection(database_url=database_url) as connection:
+        with connection.cursor() as cursor:
+            execute_values(cursor, query, cleaned_rows)
+        connection.commit()
+
+    return len(cleaned_rows)
+
+
+def insert_quote_snapshot_audit_rows(rows, database_url=None):
+    """
+    Insert per-symbol quote polling audit rows into PostgreSQL.
+
+    Expected row fields:
+    cycle_id, source, symbol, requested, returned, source_timestamp,
+    collected_at, source_age_seconds, price, status, reason, batch_number
+    """
+
+    if not rows:
+        return 0
+
+    cleaned_rows = []
+
+    for row in rows:
+        cleaned_rows.append(
+            (
+                clean_datetime(row.get("cycle_id")),
+                str(row.get("source", "")).strip(),
+                str(row.get("symbol", "")).strip(),
+                clean_bool(row.get("requested")),
+                clean_bool(row.get("returned")),
+                clean_datetime(row.get("source_timestamp")),
+                clean_datetime(row.get("collected_at")),
+                clean_number(row.get("source_age_seconds")),
+                clean_number(row.get("price")),
+                str(row.get("status", "")).strip(),
+                row.get("reason"),
+                clean_int(row.get("batch_number")),
+            )
+        )
+
+    cleaned_rows = [
+        row for row in cleaned_rows
+        if row[0] is not None and row[1] and row[2] and row[9]
+    ]
+
+    if not cleaned_rows:
+        return 0
+
+    query = """
+        INSERT INTO quote_snapshot_audit (
+            cycle_id,
+            source,
+            symbol,
+            requested,
+            returned,
+            source_timestamp,
+            collected_at,
+            source_age_seconds,
+            price,
+            status,
+            reason,
+            batch_number
+        )
+        VALUES %s
+        ON CONFLICT (cycle_id, source, symbol)
+        DO UPDATE SET
+            requested = EXCLUDED.requested,
+            returned = EXCLUDED.returned,
+            source_timestamp = EXCLUDED.source_timestamp,
+            collected_at = EXCLUDED.collected_at,
+            source_age_seconds = EXCLUDED.source_age_seconds,
+            price = EXCLUDED.price,
+            status = EXCLUDED.status,
+            reason = EXCLUDED.reason,
+            batch_number = EXCLUDED.batch_number;
     """
 
     with get_connection(database_url=database_url) as connection:

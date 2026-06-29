@@ -58,6 +58,26 @@ def create_tables():
     );
     """
 
+    create_quote_snapshot_audit_table = """
+    CREATE TABLE IF NOT EXISTS quote_snapshot_audit (
+        id SERIAL PRIMARY KEY,
+        cycle_id TIMESTAMP NOT NULL,
+        source TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        requested BOOLEAN NOT NULL,
+        returned BOOLEAN NOT NULL,
+        source_timestamp TIMESTAMP,
+        collected_at TIMESTAMP,
+        source_age_seconds NUMERIC,
+        price NUMERIC,
+        status TEXT NOT NULL,
+        reason TEXT,
+        batch_number INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (cycle_id, source, symbol)
+    );
+    """
+
     create_indexes = """
     CREATE INDEX IF NOT EXISTS idx_vnx_quotes_symbol_time
         ON vnx_quotes (symbol, timestamp_readable);
@@ -67,6 +87,15 @@ def create_tables():
 
     CREATE INDEX IF NOT EXISTS idx_matched_quote_symbol_time
         ON matched_quote_analysis (symbol, vnx_time);
+
+    CREATE INDEX IF NOT EXISTS idx_quote_snapshot_audit_cycle_source
+        ON quote_snapshot_audit (cycle_id DESC, source);
+
+    CREATE INDEX IF NOT EXISTS idx_quote_snapshot_audit_symbol_source
+        ON quote_snapshot_audit (symbol, source, cycle_id DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_quote_snapshot_audit_status
+        ON quote_snapshot_audit (status, cycle_id DESC);
     """
 
     with get_connection() as connection:
@@ -75,6 +104,7 @@ def create_tables():
             cursor.execute(create_vnx_quotes_table)
             cursor.execute(create_delayed_quotes_table)
             cursor.execute(create_matched_quote_analysis_table)
+            cursor.execute(create_quote_snapshot_audit_table)
             cursor.execute(create_indexes)
 
         connection.commit()

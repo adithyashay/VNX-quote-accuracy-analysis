@@ -41,20 +41,25 @@ def table_exists(cursor, table_name):
     return cursor.fetchone()[0]
 
 
-def check_database(label, database_url=None):
+def check_database(label, database_url=None, require_snapshot_audit=False):
     try:
         with get_connection(database_url=database_url) as connection:
             with connection.cursor() as cursor:
                 database_name = fetch_scalar(cursor, "SELECT current_database();")
                 print(f"{label}: connected to {database_name}")
 
-                for table_name in [
+                table_names = [
                     "sp500_symbols",
                     "vnx_quotes",
                     "delayed_quotes",
                     "matched_quote_analysis",
                     "pipeline_health_events",
-                ]:
+                ]
+
+                if require_snapshot_audit:
+                    table_names.append("quote_snapshot_audit")
+
+                for table_name in table_names:
                     exists = table_exists(cursor, table_name)
                     print(f"{label}.{table_name}: {'ok' if exists else 'missing'}")
 
@@ -105,7 +110,10 @@ def main():
     print("---------------")
 
     if primary_url:
-        ok = check_database("local_primary") and ok
+        ok = check_database(
+            "local_primary",
+            require_snapshot_audit=True,
+        ) and ok
 
     if replica_url:
         ok = check_database("neon_replica", database_url=replica_url) and ok

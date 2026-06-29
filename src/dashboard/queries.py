@@ -401,3 +401,32 @@ def load_pipeline_health_summary():
         "freshness": freshness,
         "events": events_df,
     }
+
+
+def load_collection_coverage_history(limit=100):
+    """
+    Load recent collector events that contain snapshot coverage summaries.
+    """
+
+    engine = get_database_engine()
+
+    query = """
+        SELECT
+            event_time,
+            status,
+            details
+        FROM pipeline_health_events
+        WHERE component = 'collector'
+        ORDER BY event_time DESC
+        LIMIT %(limit)s;
+    """
+
+    try:
+        df = pd.read_sql_query(query, engine, params={"limit": limit})
+    except SQLAlchemyError:
+        return pd.DataFrame(columns=["event_time", "status", "details"])
+
+    if not df.empty:
+        df["event_time"] = pd.to_datetime(df["event_time"], errors="coerce")
+
+    return df

@@ -125,7 +125,7 @@ def save_rows_to_csv(rows, file_path, duplicate_columns):
     }
 
 
-def collect_vnx_quotes_batch(symbols, save_csv_backup=True):
+def collect_vnx_quotes_batch(symbols, save_csv_backup=True, collection_timestamp=None):
     """
     Collect VNX quotes for multiple symbols.
 
@@ -138,7 +138,8 @@ def collect_vnx_quotes_batch(symbols, save_csv_backup=True):
 
     rows = []
 
-    collection_timestamp = datetime.now()
+    if collection_timestamp is None:
+        collection_timestamp = datetime.now()
 
     for quote in quotes:
         rows.append({
@@ -174,7 +175,7 @@ def collect_vnx_quotes_batch(symbols, save_csv_backup=True):
     return csv_status
 
 
-def collect_delayed_quotes_batch(symbols, save_csv_backup=True):
+def collect_delayed_quotes_batch(symbols, save_csv_backup=True, collection_timestamp=None):
     """
     Collect delayed quotes for multiple symbols.
 
@@ -187,7 +188,8 @@ def collect_delayed_quotes_batch(symbols, save_csv_backup=True):
 
     rows = []
 
-    collection_timestamp = datetime.now()
+    if collection_timestamp is None:
+        collection_timestamp = datetime.now()
 
     for quote in quotes:
         rows.append({

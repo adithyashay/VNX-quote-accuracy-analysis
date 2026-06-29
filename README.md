@@ -100,6 +100,19 @@ It also includes basis-point normalization, price-band summaries, and matched
 observation counts by ticker and by selected time interval, so the team can see
 how many collected snapshots support each view.
 
+The pipeline also records snapshot coverage for every polling cycle:
+
+```text
+requested S&P 500 symbols
+returned VNX symbols
+returned delayed/reference symbols
+missing or malformed symbols by feed
+```
+
+This is separate from the raw quote tables. Raw quote tables are deduplicated by
+source timestamp, while snapshot coverage proves whether each 60-second API poll
+returned every requested symbol.
+
 ## Useful Commands
 
 ```powershell

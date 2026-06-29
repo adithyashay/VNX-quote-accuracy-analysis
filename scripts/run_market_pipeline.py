@@ -1,8 +1,13 @@
 import os
 import time
+from datetime import datetime
 
 from config.symbols import ACTIVE_SYMBOLS
 from src.settings import get_bool_env, get_int_env
+from src.collection_audit import (
+    build_snapshot_audit_rows,
+    summarize_snapshot_audit_rows,
+)
 from src.batch_collectors import (
     collect_vnx_quotes_batch,
     collect_delayed_quotes_batch
@@ -15,6 +20,7 @@ from src.database.writer import (
     insert_vnx_quote_rows,
     insert_delayed_quote_rows,
     insert_matched_quote_rows,
+    insert_quote_snapshot_audit_rows,
 )
 from src.database.pipeline_health import record_pipeline_event
 from src.database.postgres_matcher import match_unmatched_postgres_quotes_to_delayed
@@ -105,6 +111,26 @@ def write_pipeline_event(component, status, message=None, details=None):
         print("Pipeline health event failed:", error)
 
 
+def write_replica_pipeline_event(component, status, message=None, details=None):
+    """
+    Mirror lightweight health events to the cloud dashboard database.
+    """
+
+    if not MATCHED_REPLICA_DATABASE_URL:
+        return
+
+    try:
+        record_pipeline_event(
+            component=component,
+            status=status,
+            message=message,
+            details=details,
+            database_url=MATCHED_REPLICA_DATABASE_URL,
+        )
+    except Exception as error:
+        print("Replica pipeline health event failed:", error)
+
+
 # -----------------------------
 # Batching helper
 # -----------------------------
@@ -138,9 +164,12 @@ def collect_all_symbols_in_batches():
     """
     Collect VNX and delayed quotes for all active symbols using batch API calls.
 
-    Data is saved to CSV backup by batch_collectors and inserted into PostgreSQL
-    by database writer functions.
+    Data is saved to CSV backup by batch_collectors, inserted into PostgreSQL
+    by database writer functions, and audited per requested symbol so we can
+    prove whether every polling cycle returned every symbol.
     """
+
+    cycle_timestamp = datetime.now()
 
     total_collected_vnx = 0
     total_collected_delayed = 0
@@ -157,6 +186,7 @@ def collect_all_symbols_in_batches():
     total_cleaned_delayed_duplicates = 0
 
     total_errors = 0
+    audit_rows = []
 
     for batch_number, symbol_batch in enumerate(
         split_into_batches(SYMBOLS, BATCH_SIZE),
@@ -166,54 +196,104 @@ def collect_all_symbols_in_batches():
         print(f"Collecting batch {batch_number}: {len(symbol_batch)} symbols")
         print("Symbols:", ", ".join(symbol_batch))
 
+        vnx_rows = []
+        vnx_error = None
+
         try:
             vnx_status = collect_vnx_quotes_batch(
                 symbol_batch,
                 save_csv_backup=SAVE_CSV_BACKUP,
+                collection_timestamp=cycle_timestamp,
             )
-            delayed_status = collect_delayed_quotes_batch(
-                symbol_batch,
-                save_csv_backup=SAVE_CSV_BACKUP,
-            )
-
             vnx_rows = vnx_status.get("rows", [])
-            delayed_rows = delayed_status.get("rows", [])
-
             inserted_vnx_count = insert_vnx_quote_rows(vnx_rows)
-            inserted_delayed_count = insert_delayed_quote_rows(delayed_rows)
 
             total_collected_vnx += len(vnx_rows)
-            total_collected_delayed += len(delayed_rows)
-
             total_csv_saved_vnx += vnx_status["saved_rows"]
-            total_csv_saved_delayed += delayed_status["saved_rows"]
-
             total_csv_skipped_vnx += vnx_status["skipped_rows"]
-            total_csv_skipped_delayed += delayed_status["skipped_rows"]
-
             total_db_inserted_vnx += inserted_vnx_count
-            total_db_inserted_delayed += inserted_delayed_count
-
             total_cleaned_vnx_duplicates += vnx_status.get(
                 "cleaned_existing_duplicates",
                 0
             )
 
+            print("VNX CSV:", summarize_status(vnx_status))
+            print("VNX PostgreSQL rows processed:", inserted_vnx_count)
+
+        except Exception as error:
+            total_errors += 1
+            vnx_error = str(error)
+            print("VNX batch collection error:", error)
+
+        audit_rows.extend(
+            build_snapshot_audit_rows(
+                source="vnx",
+                requested_symbols=symbol_batch,
+                returned_rows=vnx_rows,
+                cycle_id=cycle_timestamp,
+                batch_number=batch_number,
+                timestamp_field="timestamp_readable",
+                price_field="vnx_price",
+                error_message=vnx_error,
+            )
+        )
+
+        delayed_rows = []
+        delayed_error = None
+
+        try:
+            delayed_status = collect_delayed_quotes_batch(
+                symbol_batch,
+                save_csv_backup=SAVE_CSV_BACKUP,
+                collection_timestamp=cycle_timestamp,
+            )
+
+            delayed_rows = delayed_status.get("rows", [])
+            inserted_delayed_count = insert_delayed_quote_rows(delayed_rows)
+
+            total_collected_delayed += len(delayed_rows)
+            total_csv_saved_delayed += delayed_status["saved_rows"]
+            total_csv_skipped_delayed += delayed_status["skipped_rows"]
+            total_db_inserted_delayed += inserted_delayed_count
             total_cleaned_delayed_duplicates += delayed_status.get(
                 "cleaned_existing_duplicates",
                 0
             )
 
-            print("VNX CSV:", summarize_status(vnx_status))
             print("Delayed CSV:", summarize_status(delayed_status))
-            print("VNX PostgreSQL rows processed:", inserted_vnx_count)
             print("Delayed PostgreSQL rows processed:", inserted_delayed_count)
 
         except Exception as error:
             total_errors += 1
-            print("Batch collection error:", error)
+            delayed_error = str(error)
+            print("Delayed batch collection error:", error)
+
+        audit_rows.extend(
+            build_snapshot_audit_rows(
+                source="delayed",
+                requested_symbols=symbol_batch,
+                returned_rows=delayed_rows,
+                cycle_id=cycle_timestamp,
+                batch_number=batch_number,
+                timestamp_field="delayed_time_readable",
+                price_field="delayed_price",
+                error_message=delayed_error,
+            )
+        )
+
+    audit_inserted_count = 0
+    audit_error = None
+
+    try:
+        audit_inserted_count = insert_quote_snapshot_audit_rows(audit_rows)
+    except Exception as error:
+        audit_error = str(error)
+        print("Snapshot audit insert error:", audit_error)
+
+    snapshot_coverage = summarize_snapshot_audit_rows(audit_rows)
 
     return {
+        "cycle_started_at": cycle_timestamp,
         "collected_vnx_count": total_collected_vnx,
         "collected_delayed_count": total_collected_delayed,
 
@@ -227,6 +307,11 @@ def collect_all_symbols_in_batches():
 
         "cleaned_vnx_duplicates": total_cleaned_vnx_duplicates,
         "cleaned_delayed_duplicates": total_cleaned_delayed_duplicates,
+
+        "snapshot_audit_rows_processed": len(audit_rows),
+        "snapshot_audit_rows_inserted": audit_inserted_count,
+        "snapshot_audit_error": audit_error,
+        "snapshot_coverage": snapshot_coverage,
 
         "error_count": total_errors
     }
@@ -420,6 +505,12 @@ def main():
                 "Collection cycle completed.",
                 collection_summary,
             )
+            write_replica_pipeline_event(
+                "collector",
+                collection_status,
+                "Collection cycle completed.",
+                collection_summary,
+            )
 
             print()
             print("Collection Summary")
@@ -475,6 +566,15 @@ def main():
                 print("Next matcher run in about", seconds_until_next_matcher, "seconds.")
 
             write_pipeline_event(
+                "market_pipeline",
+                "running",
+                "Market pipeline cycle completed.",
+                {
+                    "current_eastern_time": current_time.isoformat(),
+                    "collection_errors": collection_summary["error_count"],
+                },
+            )
+            write_replica_pipeline_event(
                 "market_pipeline",
                 "running",
                 "Market pipeline cycle completed.",
