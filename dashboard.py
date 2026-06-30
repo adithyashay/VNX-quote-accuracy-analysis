@@ -18,6 +18,7 @@ from src.dashboard.queries import (
 from src.dashboard.coverage import (
     build_collection_coverage_tables,
     calculate_collection_cycle_metrics,
+    calculate_problem_summary,
     calculate_repeated_problem_symbols,
 )
 from src.dashboard.metrics import (
@@ -75,6 +76,11 @@ COLLECTION_INTERVAL_SECONDS = get_int_env(
     "COLLECTION_INTERVAL_SECONDS",
     60,
     min_value=1,
+)
+COLLECTION_CADENCE_WARNING_SECONDS = get_int_env(
+    "COLLECTION_CADENCE_WARNING_SECONDS",
+    max(COLLECTION_INTERVAL_SECONDS * 2, COLLECTION_INTERVAL_SECONDS + 60),
+    min_value=COLLECTION_INTERVAL_SECONDS,
 )
 MATCHER_INTERVAL_SECONDS = get_int_env(
     "MATCHER_INTERVAL_SECONDS",
@@ -153,10 +159,18 @@ def load_collection_coverage_tables():
     cycle_metrics = calculate_collection_cycle_metrics(
         coverage_df,
         expected_interval_seconds=COLLECTION_INTERVAL_SECONDS,
+        cadence_warning_seconds=COLLECTION_CADENCE_WARNING_SECONDS,
     )
     repeated_problem_df = calculate_repeated_problem_symbols(problem_df)
+    problem_summary_df = calculate_problem_summary(problem_df)
 
-    return coverage_df, problem_df, cycle_metrics, repeated_problem_df
+    return (
+        coverage_df,
+        problem_df,
+        cycle_metrics,
+        repeated_problem_df,
+        problem_summary_df,
+    )
 
 
 def calculate_latest_coverage_totals(coverage_df):
@@ -183,8 +197,15 @@ def calculate_latest_coverage_totals(coverage_df):
     }
 
 
+def format_seconds_metric(value, decimals=0):
+    if value is None or pd.isna(value):
+        return "N/A"
+
+    return f"{format_float(value, decimals)} sec"
+
+
 def render_latest_coverage_summary():
-    coverage_df, _, cycle_metrics, _ = load_collection_coverage_tables()
+    coverage_df, _, _, _, _ = load_collection_coverage_tables()
     coverage_totals = calculate_latest_coverage_totals(coverage_df)
 
     if coverage_df.empty:
@@ -849,6 +870,7 @@ def render_collection_snapshot_coverage():
         problem_df,
         cycle_metrics,
         repeated_problem_df,
+        problem_summary_df,
     ) = load_collection_coverage_tables()
 
     if coverage_df.empty:
@@ -885,24 +907,20 @@ def render_collection_snapshot_coverage():
         format_number(coverage_totals["problem_total"]),
     )
     col6.metric(
-        "Expected Cycles",
-        format_number(cycle_metrics["expected_cycles"]),
-    )
-    col7.metric(
         "Actual Cycles",
         format_number(cycle_metrics["actual_cycles"]),
     )
+    col7.metric(
+        "Avg Cycle Gap",
+        format_seconds_metric(cycle_metrics["avg_cycle_gap_seconds"]),
+    )
     col8.metric(
-        "Missing Cycles",
-        format_number(cycle_metrics["missing_cycles"]),
+        "Max Cycle Gap",
+        format_seconds_metric(cycle_metrics["max_cycle_gap_seconds"]),
     )
     col9.metric(
-        "Max Cycle Gap",
-        (
-            f"{format_float(cycle_metrics['max_cycle_gap_seconds'], 0)} sec"
-            if cycle_metrics["max_cycle_gap_seconds"] is not None
-            else "N/A"
-        ),
+        f"Late Gaps > {format_number(cycle_metrics['cadence_warning_seconds'])} sec",
+        format_number(cycle_metrics["late_gap_count"]),
     )
 
     if coverage_totals["problem_total"]:
@@ -957,6 +975,42 @@ def render_collection_snapshot_coverage():
         st.caption("No missing or malformed symbols found in recent collector cycles.")
         return
 
+    st.subheader("Problem Reason Summary")
+
+    display_problem_summary_df = problem_summary_df.copy()
+
+    if "latest_problem_time" in display_problem_summary_df.columns:
+        display_problem_summary_df["latest_problem_time"] = pd.to_datetime(
+            display_problem_summary_df["latest_problem_time"],
+            errors="coerce",
+        ).apply(format_timestamp)
+
+    st.dataframe(
+        display_problem_summary_df,
+        use_container_width=True,
+        height=220,
+    )
+
+    latest_problem_df = problem_df[problem_df["event_time"] == latest_event_time]
+
+    if not latest_problem_df.empty:
+        st.subheader("Latest Cycle Problem Symbols")
+
+        display_latest_problem_df = latest_problem_df.copy()
+
+        for column in ["event_time", "cycle_started_at"]:
+            if column in display_latest_problem_df.columns:
+                display_latest_problem_df[column] = pd.to_datetime(
+                    display_latest_problem_df[column],
+                    errors="coerce",
+                ).apply(format_timestamp)
+
+        st.dataframe(
+            display_latest_problem_df.sort_values(["source", "problem", "symbol"]),
+            use_container_width=True,
+            height=300,
+        )
+
     st.subheader("Repeated Problem Symbols")
 
     display_repeated_df = repeated_problem_df.copy()
@@ -974,8 +1028,18 @@ def render_collection_snapshot_coverage():
     )
 
     st.subheader("Recent Problem Symbols")
+
+    display_problem_df = problem_df.copy()
+
+    for column in ["event_time", "cycle_started_at"]:
+        if column in display_problem_df.columns:
+            display_problem_df[column] = pd.to_datetime(
+                display_problem_df[column],
+                errors="coerce",
+            ).apply(format_timestamp)
+
     st.dataframe(
-        problem_df.sort_values("event_time", ascending=False).head(500),
+        display_problem_df.sort_values("event_time", ascending=False).head(500),
         use_container_width=True,
         height=300,
     )
@@ -1049,6 +1113,7 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
         problem_symbols_df,
         _,
         repeated_problem_df,
+        problem_summary_df,
     ) = load_collection_coverage_tables()
 
     col1, col2 = st.columns(2)
@@ -1140,6 +1205,13 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
             label="Download Problem Symbols",
             data=dataframe_to_csv_bytes(clean_export_dataframe(problem_symbols_df)),
             file_name="snapshot_collection_problem_symbols.csv",
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download Problem Reason Summary",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(problem_summary_df)),
+            file_name="snapshot_collection_problem_reason_summary.csv",
             mime="text/csv",
         )
 

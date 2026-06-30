@@ -12,6 +12,7 @@ This mode needs the laptop to stay awake during market hours.
 ```text
 BATCH_SIZE=100
 COLLECTION_INTERVAL_SECONDS=60
+COLLECTION_CADENCE_WARNING_SECONDS=120
 MATCHER_INTERVAL_SECONDS=300
 MATCHER_VALID_WINDOW_SECONDS=60
 MATCHER_LOOKBACK_HOURS=24
@@ -86,9 +87,15 @@ the evidence needed to prove whether the API returned all S&P 500 symbols every
 
 The coverage summary sent to Neon is intentionally lightweight. Streamlit Cloud
 uses it to show latest requested/returned/missing counts by feed, problem
-symbols by reason, expected versus actual polling cycles, and repeated missing
-symbols. Full per-symbol audit rows stay in local PostgreSQL unless the storage
-policy changes.
+symbols by reason, actual polling cadence, late cadence gaps beyond
+`COLLECTION_CADENCE_WARNING_SECONDS`, and repeated missing symbols. Full
+per-symbol audit rows stay in local PostgreSQL unless the storage policy
+changes.
+
+The collector sleeps for `COLLECTION_INTERVAL_SECONDS` after a polling cycle
+finishes. The observed cycle gap is therefore collection runtime plus the sleep
+interval. `COLLECTION_CADENCE_WARNING_SECONDS` is the practical tolerance used
+by Streamlit before marking a gap as late.
 
 Returned rows are not automatically treated as fresh. The collector marks rows
 as `stale_timestamp` when VNX timestamps are older than

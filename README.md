@@ -50,6 +50,7 @@ VIANEXUS_API_TOKEN=...
 DATABASE_URL=postgresql://postgres:local_password@localhost:5432/vnx_quote_accuracy
 MATCHED_REPLICA_DATABASE_URL=postgresql://neon_user:neon_password@neon_host/neondb?sslmode=require
 COLLECTION_INTERVAL_SECONDS=60
+COLLECTION_CADENCE_WARNING_SECONDS=120
 MATCHER_INTERVAL_SECONDS=300
 VNX_STALE_AFTER_SECONDS=300
 DELAYED_STALE_AFTER_SECONDS=1500
@@ -139,8 +140,11 @@ source timestamp, while snapshot coverage proves whether each 60-second API poll
 returned every requested symbol.
 
 The Streamlit coverage view also derives polling cadence from recent collector
-health events. It shows expected cycles, actual cycles, missing cycles, max
-cycle gap, latest feed-level coverage, and repeatedly missing/problem symbols.
+health events. It shows actual cycles, average/max cycle gap, late gaps beyond
+`COLLECTION_CADENCE_WARNING_SECONDS`, latest feed-level coverage, problem
+reasons, and repeatedly missing/problem symbols. It does not treat every cycle
+longer than 60 seconds as missed, because each polling cycle includes API batch
+runtime plus the configured sleep interval.
 
 The matcher also revisits recent invalid/wide matches. This prevents an early
 match from being treated as final before the delayed/reference feed catches up.
