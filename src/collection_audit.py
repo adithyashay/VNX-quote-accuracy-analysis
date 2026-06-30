@@ -45,6 +45,7 @@ def build_snapshot_audit_rows(
     timestamp_field,
     price_field,
     error_message=None,
+    stale_after_seconds=None,
 ):
     """
     Build one audit row per requested symbol for one API polling attempt.
@@ -111,6 +112,11 @@ def build_snapshot_audit_rows(
 
         missing_timestamp = source_timestamp is None
         missing_price = price is None
+        stale_timestamp = (
+            stale_after_seconds is not None
+            and source_age_seconds is not None
+            and source_age_seconds > stale_after_seconds
+        )
 
         if missing_timestamp:
             status = "missing_timestamp"
@@ -118,6 +124,12 @@ def build_snapshot_audit_rows(
         elif missing_price:
             status = "missing_price"
             reason = "API returned the symbol without a usable price."
+        elif stale_timestamp:
+            status = "stale_timestamp"
+            reason = (
+                "API returned the symbol, but the source timestamp is older "
+                f"than {stale_after_seconds} seconds."
+            )
         else:
             status = "ok"
             reason = None

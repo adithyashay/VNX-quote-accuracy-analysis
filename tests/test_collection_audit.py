@@ -83,6 +83,35 @@ class CollectionAuditTests(unittest.TestCase):
         self.assertEqual(by_symbol["TSLA"]["status"], "unexpected_symbol")
         self.assertFalse(by_symbol["TSLA"]["requested"])
 
+    def test_build_snapshot_audit_rows_classifies_stale_timestamps(self):
+        rows = build_snapshot_audit_rows(
+            source="vnx",
+            requested_symbols=["AAPL", "MSFT"],
+            returned_rows=[
+                {
+                    "symbol": "AAPL",
+                    "vnx_price": 100.0,
+                    "timestamp_readable": datetime(2026, 6, 29, 9, 50, 0),
+                },
+                {
+                    "symbol": "MSFT",
+                    "vnx_price": 200.0,
+                    "timestamp_readable": datetime(2026, 6, 29, 9, 59, 0),
+                },
+            ],
+            cycle_id=datetime(2026, 6, 29, 10, 0, 0),
+            batch_number=1,
+            timestamp_field="timestamp_readable",
+            price_field="vnx_price",
+            stale_after_seconds=300,
+        )
+
+        by_symbol = {row["symbol"]: row for row in rows}
+
+        self.assertEqual(by_symbol["AAPL"]["status"], "stale_timestamp")
+        self.assertEqual(by_symbol["AAPL"]["source_age_seconds"], 600)
+        self.assertEqual(by_symbol["MSFT"]["status"], "ok")
+
     def test_summarize_snapshot_audit_rows_groups_by_source(self):
         rows = build_snapshot_audit_rows(
             source="vnx",

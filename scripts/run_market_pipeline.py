@@ -74,6 +74,18 @@ MATCHER_DELAYED_PADDING_SECONDS = get_int_env(
     min_value=1,
 )
 
+VNX_STALE_AFTER_SECONDS = get_int_env(
+    "VNX_STALE_AFTER_SECONDS",
+    300,
+    min_value=1,
+)
+
+DELAYED_STALE_AFTER_SECONDS = get_int_env(
+    "DELAYED_STALE_AFTER_SECONDS",
+    1500,
+    min_value=1,
+)
+
 RAW_RETENTION_DAYS = get_int_env(
     "RAW_RETENTION_DAYS",
     1,
@@ -235,6 +247,7 @@ def collect_all_symbols_in_batches():
                 timestamp_field="timestamp_readable",
                 price_field="vnx_price",
                 error_message=vnx_error,
+                stale_after_seconds=VNX_STALE_AFTER_SECONDS,
             )
         )
 
@@ -278,6 +291,7 @@ def collect_all_symbols_in_batches():
                 timestamp_field="delayed_time_readable",
                 price_field="delayed_price",
                 error_message=delayed_error,
+                stale_after_seconds=DELAYED_STALE_AFTER_SECONDS,
             )
         )
 
@@ -468,6 +482,8 @@ def main():
             "health_heartbeat_interval_seconds": HEALTH_HEARTBEAT_INTERVAL_SECONDS,
             "matcher_lookback_hours": MATCHER_LOOKBACK_HOURS,
             "matcher_delayed_padding_seconds": MATCHER_DELAYED_PADDING_SECONDS,
+            "vnx_stale_after_seconds": VNX_STALE_AFTER_SECONDS,
+            "delayed_stale_after_seconds": DELAYED_STALE_AFTER_SECONDS,
             "raw_retention_days": RAW_RETENTION_DAYS,
             "matched_retention_days": MATCHED_RETENTION_DAYS,
             "retention_interval_seconds": RETENTION_INTERVAL_SECONDS,

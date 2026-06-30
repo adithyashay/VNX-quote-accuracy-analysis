@@ -16,6 +16,8 @@ MATCHER_INTERVAL_SECONDS=300
 MATCHER_VALID_WINDOW_SECONDS=60
 MATCHER_LOOKBACK_HOURS=24
 MATCHER_DELAYED_PADDING_SECONDS=900
+VNX_STALE_AFTER_SECONDS=300
+DELAYED_STALE_AFTER_SECONDS=1500
 SAVE_CSV_BACKUP=false
 HEALTH_HEARTBEAT_INTERVAL_SECONDS=300
 RAW_RETENTION_DAYS=0
@@ -88,9 +90,29 @@ symbols by reason, expected versus actual polling cycles, and repeated missing
 symbols. Full per-symbol audit rows stay in local PostgreSQL unless the storage
 policy changes.
 
+Returned rows are not automatically treated as fresh. The collector marks rows
+as `stale_timestamp` when VNX timestamps are older than
+`VNX_STALE_AFTER_SECONDS` or delayed/reference timestamps are older than
+`DELAYED_STALE_AFTER_SECONDS`.
+
 Accuracy metrics remain timestamp-windowed. The dashboard uses cents thresholds
 of 20, 50, and 70 cents, plus normalized basis-point percentiles, so price
 accuracy is not mixed with market movement from wide timestamp gaps.
+
+The matcher reprocesses recent unmatched rows and previous invalid/wide matches
+inside `MATCHER_LOOKBACK_HOURS`. This is required because delayed/reference
+quotes may arrive after the first matcher pass. A row that was invalid early can
+become valid later when the reference timestamp catches up.
+
+To repair existing invalid/wide rows after delayed/reference data arrives:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.rematch_invalid_matches --lookback-hours 336
+.\.venv\Scripts\python.exe -m scripts.rematch_invalid_matches --lookback-hours 336 --apply --sync-replica
+```
+
+The first command previews candidate rows. The second writes improved matches
+locally and to Neon when `MATCHED_REPLICA_DATABASE_URL` is set.
 
 ## Storage Policy
 

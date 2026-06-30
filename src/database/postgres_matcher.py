@@ -36,27 +36,30 @@ def normalize_quote_dataframe(df, time_columns, number_columns):
     return normalized_df.dropna(subset=time_columns)
 
 
-def load_unmatched_vnx_rows(cursor, lookback_hours):
+def load_vnx_rows_to_match(cursor, lookback_hours, valid_window_seconds=60):
     query = """
         SELECT
             v.symbol,
             v.vnx_price,
             v.timestamp_readable
         FROM vnx_quotes v
+        LEFT JOIN matched_quote_analysis m
+            ON m.symbol = v.symbol
+           AND m.vnx_time = v.timestamp_readable
         WHERE v.timestamp_readable >= (
             (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')
             - (%s * INTERVAL '1 hour')
         )
-        AND NOT EXISTS (
-            SELECT 1
-            FROM matched_quote_analysis m
-            WHERE m.symbol = v.symbol
-              AND m.vnx_time = v.timestamp_readable
+        AND (
+            m.symbol IS NULL
+            OR m.valid_match IS DISTINCT FROM TRUE
+            OR m.time_gap_seconds IS NULL
+            OR m.time_gap_seconds > %s
         )
         ORDER BY v.timestamp_readable, v.symbol;
     """
 
-    cursor.execute(query, (lookback_hours,))
+    cursor.execute(query, (lookback_hours, valid_window_seconds))
 
     return normalize_quote_dataframe(
         rows_to_dataframe(
@@ -66,6 +69,10 @@ def load_unmatched_vnx_rows(cursor, lookback_hours):
         time_columns=["timestamp_readable"],
         number_columns=["vnx_price"],
     )
+
+
+def load_unmatched_vnx_rows(cursor, lookback_hours):
+    return load_vnx_rows_to_match(cursor, lookback_hours)
 
 
 def load_delayed_rows_for_vnx_window(cursor, vnx_df, padding_seconds):
@@ -110,7 +117,11 @@ def match_unmatched_postgres_quotes_to_delayed(
     delayed_padding_seconds=900,
 ):
     """
-    Match unmatched raw PostgreSQL VNX rows to raw delayed rows.
+    Match raw PostgreSQL VNX rows to raw delayed rows.
+
+    Recent unmatched rows and previous invalid/wide matches are both included.
+    This lets the matcher repair rows that were matched before the 15-minute
+    delayed/reference feed caught up.
 
     This is the production matcher path for cloud/local PostgreSQL pipelines.
     It does not depend on CSV backups.
@@ -118,7 +129,11 @@ def match_unmatched_postgres_quotes_to_delayed(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            vnx_df = load_unmatched_vnx_rows(cursor, lookback_hours)
+            vnx_df = load_vnx_rows_to_match(
+                cursor,
+                lookback_hours,
+                valid_window_seconds,
+            )
             delayed_df = load_delayed_rows_for_vnx_window(
                 cursor,
                 vnx_df,

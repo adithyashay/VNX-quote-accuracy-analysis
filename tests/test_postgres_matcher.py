@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from src.database.postgres_matcher import (
     load_delayed_rows_for_vnx_window,
+    load_vnx_rows_to_match,
     normalize_quote_dataframe,
 )
 
@@ -85,6 +86,30 @@ class PostgresMatcherTests(unittest.TestCase):
         self.assertIn("delayed_time_readable", delayed_df.columns)
         self.assertEqual(cursor.params[0], datetime(2026, 6, 18, 11, 59, 0))
         self.assertEqual(cursor.params[1], datetime(2026, 6, 18, 12, 6, 0))
+
+    def test_load_vnx_rows_to_match_includes_invalid_existing_matches(self):
+        cursor = FakeCursor(
+            [
+                (
+                    "AAPL",
+                    Decimal("101.25"),
+                    datetime(2026, 6, 18, 12, 0, 0),
+                )
+            ]
+        )
+
+        vnx_df = load_vnx_rows_to_match(
+            cursor,
+            lookback_hours=24,
+            valid_window_seconds=60,
+        )
+
+        self.assertIn("LEFT JOIN matched_quote_analysis", cursor.query)
+        self.assertIn("m.valid_match IS DISTINCT FROM TRUE", cursor.query)
+        self.assertIn("m.time_gap_seconds > %s", cursor.query)
+        self.assertEqual(cursor.params, (24, 60))
+        self.assertEqual(len(vnx_df), 1)
+        self.assertEqual(vnx_df.iloc[0]["symbol"], "AAPL")
 
 
 if __name__ == "__main__":

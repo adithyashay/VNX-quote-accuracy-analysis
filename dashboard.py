@@ -165,6 +165,7 @@ def calculate_latest_coverage_totals(coverage_df):
             "latest_event_time": None,
             "requested_total": 0,
             "returned_total": 0,
+            "ok_total": 0,
             "missing_total": 0,
             "problem_total": 0,
         }
@@ -176,6 +177,7 @@ def calculate_latest_coverage_totals(coverage_df):
         "latest_event_time": latest_event_time,
         "requested_total": latest_rows["requested_count"].sum(),
         "returned_total": latest_rows["returned_count"].sum(),
+        "ok_total": latest_rows["ok_count"].sum(),
         "missing_total": latest_rows["missing_count"].sum(),
         "problem_total": latest_rows["problem_count"].sum(),
     }
@@ -198,19 +200,22 @@ def render_latest_coverage_summary():
         format_timestamp(coverage_totals["latest_event_time"]),
     )
     col2.metric(
+        "Fresh / Requested",
+        (
+            f"{format_number(coverage_totals['ok_total'])} / "
+            f"{format_number(coverage_totals['requested_total'])}"
+        ),
+    )
+    col3.metric(
         "Returned / Requested",
         (
             f"{format_number(coverage_totals['returned_total'])} / "
             f"{format_number(coverage_totals['requested_total'])}"
         ),
     )
-    col3.metric(
-        "Missing Snapshots",
-        format_number(coverage_totals["missing_total"]),
-    )
     col4.metric(
-        "Missing Cycles",
-        format_number(cycle_metrics["missing_cycles"]),
+        "Problem Snapshots",
+        format_number(coverage_totals["problem_total"]),
     )
 
 
@@ -869,25 +874,29 @@ def render_collection_snapshot_coverage():
         format_number(coverage_totals["returned_total"]),
     )
     col4.metric(
-        "Missing Snapshots",
-        format_number(coverage_totals["missing_total"]),
+        "Fresh Snapshots",
+        format_number(coverage_totals["ok_total"]),
     )
 
-    col5, col6, col7, col8 = st.columns(4)
+    col5, col6, col7, col8, col9 = st.columns(5)
 
     col5.metric(
+        "Problem Snapshots",
+        format_number(coverage_totals["problem_total"]),
+    )
+    col6.metric(
         "Expected Cycles",
         format_number(cycle_metrics["expected_cycles"]),
     )
-    col6.metric(
+    col7.metric(
         "Actual Cycles",
         format_number(cycle_metrics["actual_cycles"]),
     )
-    col7.metric(
+    col8.metric(
         "Missing Cycles",
         format_number(cycle_metrics["missing_cycles"]),
     )
-    col8.metric(
+    col9.metric(
         "Max Cycle Gap",
         (
             f"{format_float(cycle_metrics['max_cycle_gap_seconds'], 0)} sec"

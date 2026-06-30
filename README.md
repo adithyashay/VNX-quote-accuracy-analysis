@@ -51,6 +51,8 @@ DATABASE_URL=postgresql://postgres:local_password@localhost:5432/vnx_quote_accur
 MATCHED_REPLICA_DATABASE_URL=postgresql://neon_user:neon_password@neon_host/neondb?sslmode=require
 COLLECTION_INTERVAL_SECONDS=60
 MATCHER_INTERVAL_SECONDS=300
+VNX_STALE_AFTER_SECONDS=300
+DELAYED_STALE_AFTER_SECONDS=1500
 SAVE_CSV_BACKUP=false
 RAW_RETENTION_DAYS=0
 MATCHED_RETENTION_DAYS=0
@@ -139,6 +141,9 @@ returned every requested symbol.
 The Streamlit coverage view also derives polling cadence from recent collector
 health events. It shows expected cycles, actual cycles, missing cycles, max
 cycle gap, latest feed-level coverage, and repeatedly missing/problem symbols.
+
+The matcher also revisits recent invalid/wide matches. This prevents an early
+match from being treated as final before the delayed/reference feed catches up.
 
 ## Useful Commands
 
