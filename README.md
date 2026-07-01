@@ -13,7 +13,7 @@ Laptop market pipeline during trading hours
     ->
 Local PostgreSQL raw VNX + raw delayed + matched analysis
     ->
-Neon PostgreSQL matched analysis only
+Neon PostgreSQL matched analysis + symbol metadata + health events
     ->
 Streamlit Cloud dashboard
 ```
@@ -24,13 +24,14 @@ the cloud database small enough for dashboard access.
 ## Data Flow
 
 ```text
-1. Collect raw VNX quotes every 60 seconds.
-2. Collect raw delayed/reference quotes every 60 seconds.
-3. Store both raw feeds in local PostgreSQL.
-4. Run the PostgreSQL matcher every 5 minutes.
-5. Store matched analysis in local PostgreSQL.
-6. Sync matched analysis only to Neon PostgreSQL.
-7. Streamlit Cloud reads Neon so the dashboard is available from anywhere.
+1. Refresh the latest S&P 500 symbol universe once per market day.
+2. Collect raw VNX quotes every 60 seconds.
+3. Collect raw delayed/reference quotes every 60 seconds.
+4. Store both raw feeds in local PostgreSQL.
+5. Run the PostgreSQL matcher every 5 minutes.
+6. Store matched analysis in local PostgreSQL.
+7. Sync matched analysis, symbol metadata, and health events to Neon PostgreSQL.
+8. Streamlit Cloud reads Neon so the dashboard is available from anywhere.
 ```
 
 ## Local Setup
@@ -49,6 +50,7 @@ Fill in `.env` with:
 VIANEXUS_API_TOKEN=...
 DATABASE_URL=postgresql://postgres:local_password@localhost:5432/vnx_quote_accuracy
 MATCHED_REPLICA_DATABASE_URL=postgresql://neon_user:neon_password@neon_host/neondb?sslmode=require
+REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN=true
 COLLECTION_INTERVAL_SECONDS=60
 COLLECTION_CADENCE_WARNING_SECONDS=120
 MATCHER_INTERVAL_SECONDS=300
@@ -60,7 +62,8 @@ MATCHED_RETENTION_DAYS=0
 ```
 
 `DATABASE_URL` is the local PostgreSQL database. `MATCHED_REPLICA_DATABASE_URL`
-is Neon and receives matched rows only.
+is Neon and receives matched rows, refreshed symbol metadata, and lightweight
+health/coverage events.
 
 ## Daily Run
 
@@ -90,7 +93,8 @@ Streamlit Cloud -> reads Neon DATABASE_URL
 ```
 
 The Streamlit Cloud app should use Neon as `DATABASE_URL`, because Neon contains
-the matched analysis synced from the laptop worker.
+the matched analysis, symbol metadata, and lightweight health events synced from
+the laptop worker.
 
 The dashboard is organized around two product questions:
 
@@ -138,6 +142,12 @@ missing or malformed symbols by feed
 This is separate from the raw quote tables. Raw quote tables are deduplicated by
 source timestamp, while snapshot coverage proves whether each 60-second API poll
 returned every requested symbol.
+
+At the first market-open cycle each day, the market pipeline refreshes the
+S&P 500 symbol universe when `REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN=true`. It
+downloads the latest symbol file, imports it into local PostgreSQL, mirrors it
+to the cloud replica when configured, reloads the active collection symbols, and
+then starts snapshot collection.
 
 The Streamlit coverage view also derives polling cadence from recent collector
 health events. It shows actual cycles, average/max cycle gap, late gaps beyond

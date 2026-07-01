@@ -11,6 +11,7 @@ This mode needs the laptop to stay awake during market hours.
 
 ```text
 BATCH_SIZE=100
+REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN=true
 COLLECTION_INTERVAL_SECONDS=60
 COLLECTION_CADENCE_WARNING_SECONDS=120
 MATCHER_INTERVAL_SECONDS=300
@@ -43,7 +44,7 @@ With this setup:
 - local PostgreSQL stores raw VNX quotes
 - local PostgreSQL stores raw delayed quotes
 - local PostgreSQL stores matched quote analysis
-- Neon stores matched quote analysis only
+- Neon stores matched quote analysis, symbol metadata, and lightweight health events
 - Streamlit Cloud reads Neon and updates for your boss
 
 Set `RAW_RETENTION_DAYS=0` if you want to keep all raw data on the laptop while
@@ -67,15 +68,16 @@ The live worker does this loop:
 
 ```text
 1. Check Eastern market hours.
-2. If market is open, collect raw VNX quotes for all active symbols.
-3. Collect raw delayed/reference quotes for all active symbols.
-4. Insert raw rows into PostgreSQL.
-5. Record per-symbol snapshot coverage for each feed and polling cycle.
-6. Mirror lightweight collector coverage summaries to Neon for Streamlit Cloud.
-7. Every 5 minutes, match unmatched VNX rows from PostgreSQL raw tables.
-8. Insert matched analysis rows into PostgreSQL.
-9. If MATCHED_REPLICA_DATABASE_URL is set, sync matched rows to Neon.
-10. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
+2. Once per market day, refresh the latest S&P 500 symbol universe.
+3. If market is open, collect raw VNX quotes for all active symbols.
+4. Collect raw delayed/reference quotes for all active symbols.
+5. Insert raw rows into PostgreSQL.
+6. Record per-symbol snapshot coverage for each feed and polling cycle.
+7. Mirror lightweight collector coverage summaries to Neon for Streamlit Cloud.
+8. Every 5 minutes, match unmatched VNX rows from PostgreSQL raw tables.
+9. Insert matched analysis rows into PostgreSQL.
+10. If MATCHED_REPLICA_DATABASE_URL is set, sync matched rows to Neon.
+11. Every hour, prune old raw rows using RAW_RETENTION_DAYS.
 
 Snapshot coverage is intentionally separate from raw quote storage. Raw quote
 tables are unique by source timestamp, so repeated stale API responses update
@@ -84,6 +86,13 @@ the existing raw row instead of creating a new polling-attempt row. The
 the evidence needed to prove whether the API returned all S&P 500 symbols every
 60 seconds.
 ```
+
+When `REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN=true`, the worker downloads the latest
+S&P 500 list, imports it into local PostgreSQL, mirrors it to
+`MATCHED_REPLICA_DATABASE_URL` when configured, reloads the in-memory active
+symbols, and then starts collection. If the refresh fails, the worker records a
+`symbol_universe` health event and continues using the previous symbol list so
+data collection does not stop.
 
 The coverage summary sent to Neon is intentionally lightweight. Streamlit Cloud
 uses it to show latest requested/returned/missing counts by feed, problem

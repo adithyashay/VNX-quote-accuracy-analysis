@@ -84,7 +84,7 @@ def clean_boolean_column(df, column_name):
     return df
 
 
-def import_sp500_symbols():
+def import_sp500_symbols(database_url=None):
     """
     Import S&P 500 symbol universe into PostgreSQL.
     """
@@ -123,7 +123,7 @@ def import_sp500_symbols():
             sub_industry = EXCLUDED.sub_industry;
     """
 
-    with get_connection() as connection:
+    with get_connection(database_url=database_url) as connection:
         with connection.cursor() as cursor:
             execute_values(cursor, query, rows)
         connection.commit()

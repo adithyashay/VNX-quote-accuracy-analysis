@@ -2,7 +2,8 @@ import os
 import time
 from datetime import datetime
 
-from config.symbols import ACTIVE_SYMBOLS
+from config.symbols import ACTIVE_SYMBOLS, load_sp500_symbols
+from scripts.download_sp500_symbols import download_sp500_symbols
 from src.settings import get_bool_env, get_int_env
 from src.collection_audit import (
     build_snapshot_audit_rows,
@@ -22,6 +23,7 @@ from src.database.writer import (
     insert_matched_quote_rows,
     insert_quote_snapshot_audit_rows,
 )
+from src.database.importer import import_sp500_symbols
 from src.database.pipeline_health import record_pipeline_event
 from src.database.postgres_matcher import match_unmatched_postgres_quotes_to_delayed
 from src.database.retention import prune_quote_history
@@ -32,7 +34,12 @@ from src.market_hours import is_market_open_now
 # Settings
 # -----------------------------
 
-SYMBOLS = ACTIVE_SYMBOLS
+SYMBOLS = list(ACTIVE_SYMBOLS)
+
+REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN = get_bool_env(
+    "REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN",
+    True,
+)
 
 BATCH_SIZE = get_int_env("BATCH_SIZE", 100, min_value=1)
 
@@ -141,6 +148,118 @@ def write_replica_pipeline_event(component, status, message=None, details=None):
         )
     except Exception as error:
         print("Replica pipeline health event failed:", error)
+
+
+# -----------------------------
+# Symbol universe refresh
+# -----------------------------
+
+def refresh_sp500_symbol_universe_for_market_day(market_date):
+    """
+    Refresh the S&P 500 universe once per market day before collection starts.
+    """
+
+    global SYMBOLS
+
+    previous_symbol_count = len(SYMBOLS)
+
+    if not REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN:
+        return {
+            "market_date": market_date.isoformat(),
+            "enabled": False,
+            "previous_symbol_count": previous_symbol_count,
+            "active_symbol_count": previous_symbol_count,
+            "local_symbols_imported": 0,
+            "replica_symbols_imported": 0,
+            "replica_error": None,
+        }
+
+    print()
+    print("Refreshing S&P 500 symbol universe for", market_date.isoformat())
+
+    download_sp500_symbols()
+    local_symbols_imported = import_sp500_symbols()
+
+    replica_symbols_imported = 0
+    replica_error = None
+
+    if MATCHED_REPLICA_DATABASE_URL:
+        try:
+            replica_symbols_imported = import_sp500_symbols(
+                database_url=MATCHED_REPLICA_DATABASE_URL,
+            )
+        except Exception as error:
+            replica_error = str(error)
+            print("Replica S&P 500 symbol import error:", replica_error)
+
+    SYMBOLS = load_sp500_symbols()
+
+    return {
+        "market_date": market_date.isoformat(),
+        "enabled": True,
+        "previous_symbol_count": previous_symbol_count,
+        "active_symbol_count": len(SYMBOLS),
+        "local_symbols_imported": local_symbols_imported,
+        "replica_symbols_imported": replica_symbols_imported,
+        "replica_error": replica_error,
+    }
+
+
+def maybe_refresh_sp500_symbol_universe(last_refresh_date, current_time):
+    """
+    Run the daily symbol refresh once during market hours.
+    """
+
+    if last_refresh_date == current_time.date():
+        return last_refresh_date
+
+    try:
+        summary = refresh_sp500_symbol_universe_for_market_day(
+            current_time.date(),
+        )
+        status = "success" if not summary.get("replica_error") else "warning"
+
+        write_pipeline_event(
+            "symbol_universe",
+            status,
+            "S&P 500 symbol universe refresh completed.",
+            summary,
+        )
+        write_replica_pipeline_event(
+            "symbol_universe",
+            status,
+            "S&P 500 symbol universe refresh completed.",
+            summary,
+        )
+
+        print("Active symbols after refresh:", len(SYMBOLS))
+
+        return current_time.date()
+
+    except Exception as error:
+        error_summary = {
+            "market_date": current_time.date().isoformat(),
+            "active_symbol_count": len(SYMBOLS),
+            "error": str(error),
+        }
+
+        print("S&P 500 symbol refresh error:", error)
+        print("Continuing with previous active symbol list:", len(SYMBOLS))
+
+        write_pipeline_event(
+            "symbol_universe",
+            "error",
+            "S&P 500 symbol universe refresh failed. Continuing with previous list.",
+            error_summary,
+        )
+        write_replica_pipeline_event(
+            "symbol_universe",
+            "error",
+            "S&P 500 symbol universe refresh failed. Continuing with previous list.",
+            error_summary,
+        )
+
+        return current_time.date()
 
 
 # -----------------------------
@@ -467,6 +586,7 @@ def main():
     last_matcher_run_time = 0
     last_health_heartbeat_time = 0
     last_retention_run_time = 0
+    last_symbol_refresh_date = None
 
     write_pipeline_event(
         "market_pipeline",
@@ -488,6 +608,9 @@ def main():
             "matched_retention_days": MATCHED_RETENTION_DAYS,
             "retention_interval_seconds": RETENTION_INTERVAL_SECONDS,
             "matched_replica_enabled": bool(MATCHED_REPLICA_DATABASE_URL),
+            "refresh_sp500_symbols_on_market_open": (
+                REFRESH_SP500_SYMBOLS_ON_MARKET_OPEN
+            ),
         },
     )
 
@@ -506,7 +629,13 @@ def main():
         print("Matched Replica Enabled:", bool(MATCHED_REPLICA_DATABASE_URL))
 
         if market_is_open:
+            last_symbol_refresh_date = maybe_refresh_sp500_symbol_universe(
+                last_symbol_refresh_date,
+                current_time,
+            )
+
             print("Market is open. Running batch collection...")
+            print("Active Symbols For Collection:", len(SYMBOLS))
 
             collection_summary = collect_all_symbols_in_batches()
             collection_status = (
