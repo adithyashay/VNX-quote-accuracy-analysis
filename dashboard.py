@@ -20,7 +20,6 @@ from src.dashboard.coverage import (
     calculate_collection_cycle_metrics,
     calculate_problem_summary,
     calculate_repeated_problem_symbols,
-    calculate_stale_symbol_summary,
 )
 from src.dashboard.metrics import (
     calculate_overall_metrics,
@@ -154,6 +153,67 @@ def cached_collection_coverage_history():
     return load_collection_coverage_history(limit=500)
 
 
+def calculate_dashboard_stale_symbol_summary(problem_df, coverage_df, source="VNX"):
+    columns = [
+        "source",
+        "symbol",
+        "stale_snapshots",
+        "recent_cycles_analyzed",
+        "stale_snapshot_pct",
+        "first_stale_time",
+        "latest_stale_time",
+    ]
+
+    if problem_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    source = source.upper()
+    source_problem_df = problem_df[
+        (problem_df["source"] == source)
+        & (problem_df["problem"] == "stale_timestamp")
+    ].copy()
+
+    if source_problem_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    if coverage_df.empty or "cycle_started_at" not in coverage_df.columns:
+        recent_cycles_analyzed = 0
+    else:
+        source_coverage_df = coverage_df[coverage_df["source"] == source]
+        recent_cycles_analyzed = (
+            pd.to_datetime(
+                source_coverage_df["cycle_started_at"],
+                errors="coerce",
+            )
+            .dropna()
+            .nunique()
+        )
+
+    stale_df = (
+        source_problem_df.groupby(["source", "symbol"], dropna=False)
+        .agg(
+            stale_snapshots=("problem", "count"),
+            first_stale_time=("event_time", "min"),
+            latest_stale_time=("event_time", "max"),
+        )
+        .reset_index()
+    )
+
+    stale_df["recent_cycles_analyzed"] = recent_cycles_analyzed
+
+    if recent_cycles_analyzed:
+        stale_df["stale_snapshot_pct"] = (
+            stale_df["stale_snapshots"] / recent_cycles_analyzed * 100
+        )
+    else:
+        stale_df["stale_snapshot_pct"] = None
+
+    return stale_df[columns].sort_values(
+        ["stale_snapshot_pct", "stale_snapshots", "latest_stale_time"],
+        ascending=[False, False, False],
+    )
+
+
 def load_collection_coverage_tables():
     history_df = cached_collection_coverage_history()
     coverage_df, problem_df = build_collection_coverage_tables(history_df)
@@ -164,7 +224,7 @@ def load_collection_coverage_tables():
     )
     repeated_problem_df = calculate_repeated_problem_symbols(problem_df)
     problem_summary_df = calculate_problem_summary(problem_df)
-    stale_vnx_symbols_df = calculate_stale_symbol_summary(
+    stale_vnx_symbols_df = calculate_dashboard_stale_symbol_summary(
         problem_df,
         coverage_df,
         source="VNX",
