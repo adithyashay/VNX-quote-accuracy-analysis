@@ -8,6 +8,7 @@ from src.dashboard.coverage import (
     calculate_collection_cycle_metrics,
     calculate_problem_summary,
     calculate_repeated_problem_symbols,
+    calculate_stale_symbol_summary,
 )
 
 
@@ -201,6 +202,78 @@ class DashboardCoverageTests(unittest.TestCase):
             top_row["problem_types"],
             "missing_from_response, missing_price",
         )
+
+    def test_calculate_stale_symbol_summary_ranks_by_stale_percentage(self):
+        coverage_df = pd.DataFrame(
+            [
+                {
+                    "cycle_started_at": "2026-06-29T10:00:00",
+                    "source": "VNX",
+                },
+                {
+                    "cycle_started_at": "2026-06-29T10:01:00",
+                    "source": "VNX",
+                },
+                {
+                    "cycle_started_at": "2026-06-29T10:02:00",
+                    "source": "VNX",
+                },
+                {
+                    "cycle_started_at": "2026-06-29T10:00:00",
+                    "source": "DELAYED",
+                },
+            ]
+        )
+        problem_df = pd.DataFrame(
+            [
+                {
+                    "event_time": "2026-06-29T10:00:30",
+                    "source": "VNX",
+                    "problem": "stale_timestamp",
+                    "symbol": "NVR",
+                },
+                {
+                    "event_time": "2026-06-29T10:01:30",
+                    "source": "VNX",
+                    "problem": "stale_timestamp",
+                    "symbol": "NVR",
+                },
+                {
+                    "event_time": "2026-06-29T10:02:30",
+                    "source": "VNX",
+                    "problem": "stale_timestamp",
+                    "symbol": "AAPL",
+                },
+                {
+                    "event_time": "2026-06-29T10:02:30",
+                    "source": "VNX",
+                    "problem": "missing_price",
+                    "symbol": "MSFT",
+                },
+                {
+                    "event_time": "2026-06-29T10:00:30",
+                    "source": "DELAYED",
+                    "problem": "stale_timestamp",
+                    "symbol": "NVR",
+                },
+            ]
+        )
+
+        stale_df = calculate_stale_symbol_summary(
+            problem_df,
+            coverage_df,
+            source="VNX",
+        )
+
+        top_row = stale_df.iloc[0]
+        second_row = stale_df.iloc[1]
+
+        self.assertEqual(top_row["symbol"], "NVR")
+        self.assertEqual(top_row["stale_snapshots"], 2)
+        self.assertEqual(top_row["recent_cycles_analyzed"], 3)
+        self.assertAlmostEqual(top_row["stale_snapshot_pct"], 66.6666667)
+        self.assertEqual(second_row["symbol"], "AAPL")
+        self.assertEqual(second_row["stale_snapshots"], 1)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from src.dashboard.coverage import (
     calculate_collection_cycle_metrics,
     calculate_problem_summary,
     calculate_repeated_problem_symbols,
+    calculate_stale_symbol_summary,
 )
 from src.dashboard.metrics import (
     calculate_overall_metrics,
@@ -163,6 +164,11 @@ def load_collection_coverage_tables():
     )
     repeated_problem_df = calculate_repeated_problem_symbols(problem_df)
     problem_summary_df = calculate_problem_summary(problem_df)
+    stale_vnx_symbols_df = calculate_stale_symbol_summary(
+        problem_df,
+        coverage_df,
+        source="VNX",
+    )
 
     return (
         coverage_df,
@@ -170,6 +176,7 @@ def load_collection_coverage_tables():
         cycle_metrics,
         repeated_problem_df,
         problem_summary_df,
+        stale_vnx_symbols_df,
     )
 
 
@@ -205,7 +212,7 @@ def format_seconds_metric(value, decimals=0):
 
 
 def render_latest_coverage_summary():
-    coverage_df, _, _, _, _ = load_collection_coverage_tables()
+    coverage_df, _, _, _, _, _ = load_collection_coverage_tables()
     coverage_totals = calculate_latest_coverage_totals(coverage_df)
 
     if coverage_df.empty:
@@ -871,6 +878,7 @@ def render_collection_snapshot_coverage():
         cycle_metrics,
         repeated_problem_df,
         problem_summary_df,
+        stale_vnx_symbols_df,
     ) = load_collection_coverage_tables()
 
     if coverage_df.empty:
@@ -990,6 +998,70 @@ def render_collection_snapshot_coverage():
         use_container_width=True,
         height=220,
     )
+
+    if not stale_vnx_symbols_df.empty:
+        st.subheader("Most Stale VNX Symbols")
+
+        display_stale_vnx_df = stale_vnx_symbols_df.copy()
+        symbols_df = cached_symbols()
+
+        if not symbols_df.empty:
+            display_stale_vnx_df = display_stale_vnx_df.merge(
+                symbols_df,
+                on="symbol",
+                how="left",
+            )
+
+        for column in ["first_stale_time", "latest_stale_time"]:
+            if column in display_stale_vnx_df.columns:
+                display_stale_vnx_df[column] = pd.to_datetime(
+                    display_stale_vnx_df[column],
+                    errors="coerce",
+                ).apply(format_timestamp)
+
+        if "stale_snapshot_pct" in display_stale_vnx_df.columns:
+            display_stale_vnx_df["stale_snapshot_pct"] = (
+                display_stale_vnx_df["stale_snapshot_pct"]
+                .apply(
+                    lambda value: (
+                        f"{format_float(value, 2)}%"
+                        if value is not None and not pd.isna(value)
+                        else "N/A"
+                    )
+                )
+            )
+
+        stale_vnx_columns = [
+            "symbol",
+            "company_name",
+            "sector",
+            "stale_snapshots",
+            "recent_cycles_analyzed",
+            "stale_snapshot_pct",
+            "latest_stale_time",
+            "first_stale_time",
+        ]
+
+        st.dataframe(
+            display_stale_vnx_df[
+                [
+                    column
+                    for column in stale_vnx_columns
+                    if column in display_stale_vnx_df.columns
+                ]
+            ].head(100),
+            use_container_width=True,
+            height=300,
+        )
+
+        st.download_button(
+            label="Download Stale VNX Symbols CSV",
+            data=dataframe_to_csv_bytes(
+                clean_export_dataframe(stale_vnx_symbols_df)
+            ),
+            file_name="snapshot_stale_vnx_symbols.csv",
+            mime="text/csv",
+        )
 
     latest_problem_df = problem_df[problem_df["event_time"] == latest_event_time]
 
@@ -1114,6 +1186,7 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
         _,
         repeated_problem_df,
         problem_summary_df,
+        stale_vnx_symbols_df,
     ) = load_collection_coverage_tables()
 
     col1, col2 = st.columns(2)
@@ -1212,6 +1285,13 @@ def render_downloads(df, symbol_stats, threshold_df, filters):
             label="Download Problem Reason Summary",
             data=dataframe_to_csv_bytes(clean_export_dataframe(problem_summary_df)),
             file_name="snapshot_collection_problem_reason_summary.csv",
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download Stale VNX Symbols",
+            data=dataframe_to_csv_bytes(clean_export_dataframe(stale_vnx_symbols_df)),
+            file_name="snapshot_stale_vnx_symbols.csv",
             mime="text/csv",
         )
 

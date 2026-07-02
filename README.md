@@ -152,9 +152,9 @@ then starts snapshot collection.
 The Streamlit coverage view also derives polling cadence from recent collector
 health events. It shows actual cycles, average/max cycle gap, late gaps beyond
 `COLLECTION_CADENCE_WARNING_SECONDS`, latest feed-level coverage, problem
-reasons, and repeatedly missing/problem symbols. It does not treat every cycle
-longer than 60 seconds as missed, because each polling cycle includes API batch
-runtime plus the configured sleep interval.
+reasons, most stale VNX symbols, and repeatedly missing/problem symbols. It does
+not treat every cycle longer than 60 seconds as missed, because each polling
+cycle includes API batch runtime plus the configured sleep interval.
 
 The matcher also revisits recent invalid/wide matches. This prevents an early
 match from being treated as final before the delayed/reference feed catches up.
